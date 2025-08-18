@@ -1,0 +1,61 @@
+# ============================================
+# docker-compose.yaml
+# 使い方:
+#   - 同ディレクトリに .env を置くと HUGGINGFACE_TOKEN が自動で読み込まれます
+#   - 起動:    docker compose up --build
+#   - 一回実行: docker compose run --rm app python -m src.pipeline --in samples/sample.wav --out data/out/result.csv
+#   - 終了:    Ctrl+C（常駐中） or 別ターミナルで `docker compose down`
+# 前提:
+#   - WSL2 + Ubuntu + NVIDIA Container Toolkit がセットアップ済み（`--gpus all` が使える）
+# ============================================
+
+# 複数コンテナ（サービス）の集合を定義するトップレベルキー
+services:
+  # サービス名。自由に変更可（例: app, backend など）
+  app:
+    # ビルド方法。カレントディレクトリの Dockerfile でイメージをビルドする指定
+    build: .
+
+    # コンテナにGPUを割り当てる指定。NVIDIA Container Toolkit 導入済みが前提
+    gpus: all
+
+    # コンテナ内の作業ディレクトリ。以後の相対パスはここを基準に解決される
+    working_dir: /work
+
+    # ホスト⇔コンテナのディレクトリ共有（ボリューム）を列挙
+    volumes:
+      # プロジェクト一式をコンテナの /work にマウント（編集が即反映される）
+      - ./:/work
+
+      # 入出力データ（CSVや生成物）を永続化するためのマウント
+      - ./data:/work/data
+
+      # Hugging Face のキャッシュをホスト側に保存して再ダウンロードを避ける
+      - ./cache/hf:/root/.cache/huggingface
+
+      # Transformers 系のキャッシュ（モデルやトークナイザ）をホスト側に保存
+      - ./cache/transformers:/root/.cache/torch/transformers
+
+      # ログ出力をホスト側に保存（学習/推論のログ確認が容易）
+      - ./logs:/work/logs
+
+      # サンプル音声を共有（テスト実行用）
+      - ./samples:/work/samples
+
+    # コンテナに渡す環境変数を定義（.env から補完される）
+    environment:
+      # Hugging Face のアクセストークン。必要なモデルで認証が要る場合に使用
+      - HUGGINGFACE_TOKEN=${HUGGINGFACE_TOKEN}
+
+      # HF のキャッシュディレクトリを明示（上のボリュームとパスを一致させる）
+      - HF_HOME=/root/.cache/huggingface
+
+      # Transformers のキャッシュディレクトリを明示（上のボリュームとパスを一致させる）
+      - TRANSFORMERS_CACHE=/root/.cache/torch/transformers
+
+    # 疑似端末を割り当てる。printの改行や対話実行が安定するため開発時は true 推奨
+    tty: true
+
+    # コンテナ起動時に実処理をデフォルト実行したい場合は下を有効化
+    # （コメント解除で smoke.py の代わりにパイプラインを実行）
+    # command: ["python", "-m", "src.pipeline", "--in", "samples/sample.wav", "--out", "data/out/result.csv"]

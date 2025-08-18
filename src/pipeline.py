@@ -1,0 +1,402 @@
+# ============================================
+# src/pipeline.py 〜 超ていねいコメント版 〜
+# --------------------------------------------
+# これは「音声 → (区間分割) → 文字起こし → 感情分析 → CSV保存」
+# という一直線の処理“パイプライン”を 1 本のスクリプトで実行します。
+#
+# 【全体像】
+#   入力音声
+#     ├─ ① 区間分割（話者分離 or 無音検出）
+#     ├─ ② 文字起こし（Whisper）
+#     ├─ ③ 感情分析（Transformers）
+#     └─ ④ CSV 出力
+#
+# 【使い方（コンテナ内での実行例）】
+#   python -m src.pipeline \
+#     --in samples/sample.wav \
+#     --out data/out/result.csv \
+#     --whisper_model small \
+#     --language ja \
+#     --device auto \
+#     --sentiment_model daigo/bert-base-japanese-sentiment
+#
+#   ※ --language ja を付けると日本語の精度が安定しやすいです。
+#   ※ --sentiment_model は任意。指定しない場合は
+#      1) 日本語モデルを試す（要ネット/場合によりHFトークン）
+#      2) ダメなら英語モデル（SST-2）にフォールバックします。
+#
+# 【話者分離（pyannote）を使いたい場合】
+#   - 環境変数 USE_PYANNOTE=1 にする
+#   - HUGGINGFACE_TOKEN を .env に設定（モデルによっては同意/認証が必要）
+#   → 上記が満たされていれば pyannote で話者分離を試み、
+#      失敗したら自動で「無音検出（単一話者）」にフォールバックします。
+#
+# 【前提ライブラリ】
+#   whisper, transformers, pyannote.audio, pydub, pandas, torch
+#   （Dockerfile/requirements.txt でインストール済み）
+# ============================================
+
+from __future__ import annotations  # ｜ 型ヒントの前方参照（Python 3.10系互換のため）
+import argparse  # ｜ コマンドライン引数のパース
+import os  # ｜ OSパス/環境変数など
+import csv  # ｜ CSV書き出し
+from datetime import datetime  # ｜ タイムスタンプ用
+import tempfile  # ｜ 一時ファイル（区間音声の切り出しに使う）
+import warnings  # ｜ モデル取得失敗時などの警告表示
+
+# ========= 数値計算 / GPU利用（PyTorch） =========
+import torch  # ｜ PyTorch（CUDAが使えるかの判定や、Whisperのデバイス指定で使用）
+
+# ========= 音声入出力 / 無音検出（pydub） =========
+from pydub import AudioSegment  # ｜ 音声ファイルを読み書き・切り出し
+from pydub.silence import detect_nonsilent  # ｜ 非無音（発話っぽい）区間の検出
+
+# ========= 文字起こし（OpenAI Whisper） =========
+import whisper  # ｜ Whisper公式実装（pipパッケージ）
+
+# ========= 感情分析（Hugging Face Transformers） =========
+from transformers import pipeline as hf_pipeline  # ｜ 便利な推論パイプラインAPI
+
+# ========= 環境変数での動作切り替え（pyannote利用可否など） =========
+USE_PYANNOTE: bool = (
+    os.environ.get("USE_PYANNOTE", "0") == "1"
+)  # ｜ "1"で pyannote を使う
+HF_TOKEN: str | None = os.environ.get("HUGGINGFACE_TOKEN")  # ｜ Hugging Face のトークン
+
+# ========= VAD（無音検出）の既定パラメータ =========
+#   ここを調整するだけで“細かめに切る/大まかに切る”の変更ができます。
+VAD_MIN_SILENCE_LEN_MS: int = 400  # ｜ これ以上続く静けさを“無音”とみなす（ms）
+VAD_SILENCE_MARGIN_DB: int = 16  # ｜ 平均音量(dBFS)から何dB下を“無音”とみなすか
+VAD_KEEP_SILENCE_MS: int = 100  # ｜ 切り出し時に前後へ加える余白（ms）
+VAD_SEEK_STEP_MS: int = 10  # ｜ 検出の探索間隔（ms）小さいほど精密だが遅い
+
+
+# -------------------------------------------------
+# ユーティリティ：出力ディレクトリが無ければ作成
+# -------------------------------------------------
+def ensure_dirs(path: str) -> None:
+    """
+    指定されたパスのディレクトリ部分を作成（存在していれば何もしない）。
+    例: path = "data/out/result.csv" → "data/out" を作成
+    """
+    os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
+
+
+# -------------------------------------------------
+# ① 区間分割：話者分離（pyannote） or 無音検出（pydub）
+# -------------------------------------------------
+def diarize_segments(wav_path: str) -> list[tuple[float, float, str]]:
+    """
+    音声を (start_sec, end_sec, speaker_label) のリストに分割して返す。
+
+    優先順位：
+      1) USE_PYANNOTE=1 かつ HUGGINGFACE_TOKEN が設定 → pyannote で話者分離
+      2) それ以外 → pydub の無音検出で発話区間を切り出し、SPEAKER_00 固定
+
+    戻り値例：
+      [(0.23, 2.51, "SPEAKER_00"), (3.01, 5.10, "SPEAKER_01"), ...]
+    """
+    # --- 1) pyannote 試行（認証が必要なモデルが多い。失敗してもOK：下で自動フォールバック） ---
+    if USE_PYANNOTE and HF_TOKEN:
+        try:
+            # pyannote の読み込みは重いので、USE_PYANNOTE=1 のときだけ import
+            from pyannote.audio import Pipeline
+
+            # モデル名の例（利用同意が必要な場合あり）
+            model_name = "pyannote/speaker-diarization-3.1"
+            # トークンを渡してパイプライン生成
+            pipeline = Pipeline.from_pretrained(model_name, use_auth_token=HF_TOKEN)
+            # wav_path に対して話者分離を実行
+            diarization = pipeline(wav_path)
+            segments: list[tuple[float, float, str]] = []
+            # diarization.itertracks(yield_label=True) で (区間, _, 話者ラベル) を得る
+            for turn, _, speaker in diarization.itertracks(yield_label=True):
+                segments.append((float(turn.start), float(turn.end), str(speaker)))
+            # 1件でも取れていればそれを返す（時刻でソート）
+            if segments:
+                return sorted(segments, key=lambda x: x[0])
+            # 0件だったら pydub VAD へフォールバック
+        except Exception as e:
+            # 例：認証がない/規約同意がない/ネットワーク不良など
+            warnings.warn(f"[pyannote fallback] {e}")
+
+    # --- 2) pydub の無音検出（単一話者ラベル） ---
+    # 音声を読み込む（pydub はミリ秒基準で扱う）
+    audio = AudioSegment.from_file(wav_path)
+    # “無音”のしきい値は「平均音量から一定dB下」でダイナミックに決める
+    silence_thresh_db = audio.dBFS - VAD_SILENCE_MARGIN_DB
+    # 非無音＝発話っぽい区間を検出（[start_ms, end_ms] のリストが返る）
+    nonsilent = detect_nonsilent(
+        audio,
+        min_silence_len=VAD_MIN_SILENCE_LEN_MS,
+        silence_thresh=silence_thresh_db,
+        seek_step=VAD_SEEK_STEP_MS,
+    )
+    # 返却形式（秒・話者ラベル付き）に整形
+    segments: list[tuple[float, float, str]] = []
+    for start_ms, end_ms in nonsilent:
+        # 切り出し時に前後へ少し余白を加える（ブツ切れ感を抑える）
+        s = max(0, start_ms - VAD_KEEP_SILENCE_MS)
+        e = min(len(audio), end_ms + VAD_KEEP_SILENCE_MS)
+        segments.append((s / 1000.0, e / 1000.0, "SPEAKER_00"))
+    # もし何も見つからなければ、音声全体を 1 区間として返す
+    if not segments:
+        segments = [(0.0, len(audio) / 1000.0, "SPEAKER_00")]
+    return segments
+
+
+# -------------------------------------------------
+# ② 文字起こし（Whisper）
+#   - Whisper のモデルは最初に 1 回だけロード（高速化）
+#   - 各区間ごとに一時WAVへ書き出して transcribe
+# -------------------------------------------------
+def transcribe_segments(
+    wav_path: str,
+    segments: list[tuple[float, float, str]],
+    model_name: str,
+    language: str,
+    device: str,
+) -> list[tuple[float, float, str, str]]:
+    """
+    引数:
+      wav_path  : 元の音声ファイルパス
+      segments  : diarize_segments() が返す [(start, end, speaker), ...]
+      model_name: Whisper のモデル名（tiny/base/small/medium/large-v2 等）
+      language  : 'auto' なら言語自動判定。'ja' などで固定可
+      device    : 'auto' / 'cpu' / 'cuda'（Whisperをどこで動かすか）
+    戻り値:
+      [(start, end, speaker, text), ...]
+    """
+    # --- デバイス決定（autoなら CUDA があれば CUDA を使う） ---
+    if device.lower() == "auto":
+        use_cuda = torch.cuda.is_available()
+    else:
+        use_cuda = device.lower() == "cuda"
+
+    # --- Whisper モデルをロード（1回だけ） ---
+    #     注意：大きいモデルほど精度↑/速度↓（GPU推奨）
+    model = whisper.load_model(model_name, device="cuda" if use_cuda else "cpu")
+    print(f"[Whisper] device = {model.device}")  # ← 追加
+
+    # --- 元音声を読み込んで、区間ごとに切り出し → 一時WAV を作って transcribe ---
+    audio = AudioSegment.from_file(wav_path)
+    results: list[tuple[float, float, str, str]] = []
+
+    for s, e, spk in segments:
+        # 1) pydub で該当区間を切り出し（ミリ秒指定）
+        clip = audio[int(s * 1000) : int(e * 1000)]
+
+        # 2) Whisper はファイルパスを受け取るのが簡単なので、一時ファイルに書き出す
+        with tempfile.NamedTemporaryFile(suffix=".wav", delete=True) as tmp:
+            clip.export(tmp.name, format="wav")
+
+            # 3) transcribe を実行。language='auto' のときは指定しない。
+            kwargs = {"fp16": use_cuda}  # ｜ GPUなら半精度で高速化
+            if language and language.lower() != "auto":
+                kwargs["language"] = language
+
+            out = model.transcribe(tmp.name, **kwargs)
+            text = (out.get("text") or "").strip()
+
+            results.append((s, e, spk, text))
+
+    return results
+
+
+# -------------------------------------------------
+# ③ 感情分析（Transformers）
+#   - まず日本語モデルを試し、失敗なら英語モデルにフォールバック
+#   - GPU があれば device=0 を指定して高速化
+# -------------------------------------------------
+def build_sentiment_pipeline(model_name: str | None = None):
+    """
+    感情分析の推論パイプラインを構築して返す。
+    - model_name を明示指定 → それを使う（例: "daigo/bert-base-japanese-sentiment"）
+    - 未指定 → 日本語モデルを試す → ダメなら英語（SST-2）にフォールバック
+    """
+    device = 0 if torch.cuda.is_available() else -1  # ｜ 0=GPU(CUDA), -1=CPU
+
+    # 1) ユーザーが明示指定している場合はそれを使う（最優先）
+    if model_name:
+        return hf_pipeline(
+            "sentiment-analysis", model=model_name, tokenizer=model_name, device=device
+        )
+
+    # 2) まずは日本語モデルを試す
+    try:
+        # 注意: 日本語モデルは公開/非公開や利用同意の有無がモデルにより異なります。
+        #       非公開/同意必須なら HF トークンが必要になります（.env 経由でOK）。
+        return hf_pipeline(
+            "sentiment-analysis",
+            model="daigo/bert-base-japanese-sentiment",
+            tokenizer="daigo/bert-base-japanese-sentiment",
+            device=device,
+        )
+    except Exception as e:
+        warnings.warn(f"[sentiment fallback to English] {e}")
+        # 3) 失敗したら英語モデル（SST-2, 2クラス）にフォールバック
+        return hf_pipeline(
+            "sentiment-analysis",
+            model="distilbert-base-uncased-finetuned-sst-2-english",
+            device=device,
+        )
+
+
+def analyze_sentiments(
+    transcripts: list[tuple[float, float, str, str]], sent_pipe
+) -> list[tuple[float, float, str, str, str, float]]:
+    """
+    文字起こし結果（(start, end, speaker, text)）に対して、
+    感情ラベルとスコアを付与して返す。
+    戻り値:
+      [(start, end, speaker, text, label, score), ...]
+    """
+    outputs: list[tuple[float, float, str, str, str, float]] = []
+
+    for s, e, spk, text in transcripts:
+        if text.strip():
+            # transformers のパイプラインは [{label:.., score:..}] の形で返す
+            res = sent_pipe(text, truncation=True)[0]
+            label = str(res.get("label"))
+            score = float(res.get("score", 0.0))
+        else:
+            # テキストが空（無音/音楽等）の場合は neutral/0.0 を付与（運用方針次第で変えてOK）
+            label, score = "neutral", 0.0
+
+        outputs.append((s, e, spk, text, label, score))
+
+    return outputs
+
+
+# -------------------------------------------------
+# 引数パーサ（CLI引数の定義）
+# -------------------------------------------------
+def parse_args() -> argparse.Namespace:
+    p = argparse.ArgumentParser(
+        description="音声 → 区間分割 → 文字起こし → 感情分析 → CSV の一括実行スクリプト"
+    )
+    # 入力/出力
+    p.add_argument(
+        "--in",
+        dest="input_path",
+        required=True,
+        help="入力音声ファイルのパス（wav/mp3 など）",
+    )
+    p.add_argument(
+        "--out",
+        dest="output_csv",
+        required=True,
+        help="出力CSVのパス（例: data/out/result.csv）",
+    )
+
+    # Whisper の挙動
+    p.add_argument(
+        "--whisper_model",
+        default="small",
+        help="Whisperモデル名（tiny/base/small/medium/large-v2 など）",
+    )
+    p.add_argument(
+        "--language",
+        default="auto",
+        help="発話言語（'auto' で自動判定 / 'ja' などで固定）",
+    )
+    p.add_argument(
+        "--device", default="auto", help="Whisperの実行デバイス（auto/cpu/cuda）"
+    )
+
+    # 感情モデル指定（任意）
+    p.add_argument(
+        "--sentiment_model",
+        default=None,
+        help="感情分析に使うHugging Faceモデル名（未指定で日本語→英語の順に自動）",
+    )
+
+    return p.parse_args()
+
+
+# -------------------------------------------------
+# ④ CSV 書き出し
+# -------------------------------------------------
+def write_csv(
+    out_csv_path: str,
+    input_file: str,
+    analyzed: list[tuple[float, float, str, str, str, float]],
+) -> None:
+    """
+    analyzed を CSV に保存する。列は以下の通り：
+      file, start_sec, end_sec, speaker, transcript, sentiment, score, created_at
+    """
+    ensure_dirs(out_csv_path)  # ｜ 出力先ディレクトリが無ければ作成
+
+    header = [
+        "file",
+        "start_sec",
+        "end_sec",
+        "speaker",
+        "transcript",
+        "sentiment",
+        "score",
+        "created_at",
+    ]
+    rows = []
+    for s, e, spk, text, label, score in analyzed:
+        rows.append(
+            [
+                os.path.basename(input_file),  # ｜ 入力ファイル名のみ
+                round(s, 3),  # ｜ 小数3桁に丸め（見やすさのため）
+                round(e, 3),
+                spk,
+                text,
+                label,
+                round(score, 4),  # ｜ スコアは4桁に丸め
+                datetime.now().isoformat(timespec="seconds"),  # ｜ 実行時刻
+            ]
+        )
+
+    with open(out_csv_path, "w", newline="", encoding="utf-8") as f:
+        w = csv.writer(f)
+        w.writerow(header)
+        w.writerows(rows)
+
+
+# -------------------------------------------------
+# メイン（ここから実質の“パイプライン”が動く）
+# -------------------------------------------------
+def main() -> None:
+    # 1) 引数を読む
+    args = parse_args()
+
+    # 2) 入力の存在チェック（無ければ早期に落として分かりやすくする）
+    assert os.path.isfile(args.input_path), f"入力が見つかりません: {args.input_path}"
+
+    # 3) 区間分割（話者分離 or 無音検出）
+    segments = diarize_segments(args.input_path)
+    #    ここで得られるのは [(start_sec, end_sec, speaker_label), ...]
+    #    無音が多いと区間数は少なめ、会話が続くと細かく刻まれます。
+
+    # 4) 文字起こし（Whisper）— モデルは最初に1回ロードし、各区間を順に処理
+    transcripts = transcribe_segments(
+        args.input_path,
+        segments,
+        model_name=args.whisper_model,
+        language=args.language,
+        device=args.device,
+    )
+    #    transcripts は [(start, end, speaker, text), ...] の形になります。
+
+    # 5) 感情分析（Transformers）— まず日本語モデルを試し、ダメなら英語にフォールバック
+    sent_pipe = build_sentiment_pipeline(model_name=args.sentiment_model)
+    print(f"[Sentiment] device = {sent_pipe.model.device}")  # cpuかcudaか確認
+    analyzed = analyze_sentiments(transcripts, sent_pipe)
+    #    analyzed は [(start, end, speaker, text, label, score), ...] です。
+
+    # 6) CSV に保存
+    write_csv(args.output_csv, args.input_path, analyzed)
+
+    # 7) 完了ログ（行数を表示）
+    print(f"[OK] CSV出力: {args.output_csv}  行数={len(analyzed)}")
+
+
+# スクリプトとして直接呼ばれたときだけ main() を実行（モジュール import 時は実行しない）
+if __name__ == "__main__":
+    main()
