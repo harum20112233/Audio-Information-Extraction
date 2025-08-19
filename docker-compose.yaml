@@ -46,6 +46,11 @@ services:
     environment:
       # Hugging Face のアクセストークン。必要なモデルで認証が要る場合に使用
       - HUGGINGFACE_TOKEN=${HUGGINGFACE_TOKEN}
+      - HUGGINGFACE_HUB_TOKEN=${HUGGINGFACE_TOKEN}
+      - HF_TOKEN=${HUGGINGFACE_TOKEN}
+
+      # pyannote の利用可否
+      - USE_PYANNOTE=${USE_PYANNOTE}
 
       # HF のキャッシュディレクトリを明示（上のボリュームとパスを一致させる）
       - HF_HOME=/root/.cache/huggingface

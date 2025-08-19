@@ -97,6 +97,7 @@ def diarize_segments(wav_path: str) -> list[tuple[float, float, str]]:
       [(0.23, 2.51, "SPEAKER_00"), (3.01, 5.10, "SPEAKER_01"), ...]
     """
     # --- 1) pyannote 試行（認証が必要なモデルが多い。失敗してもOK：下で自動フォールバック） ---
+    # pyannote が使えない/失敗時は VAD（pydub）へ自動退避
     if USE_PYANNOTE and HF_TOKEN:
         try:
             # pyannote の読み込みは重いので、USE_PYANNOTE=1 のときだけ import
@@ -203,43 +204,37 @@ def transcribe_segments(
     return results
 
 
-# -------------------------------------------------
-# ③ 感情分析（Transformers）
-#   - まず日本語モデルを試し、失敗なら英語モデルにフォールバック
-#   - GPU があれば device=0 を指定して高速化
-# -------------------------------------------------
 def build_sentiment_pipeline(model_name: str | None = None):
-    """
-    感情分析の推論パイプラインを構築して返す。
-    - model_name を明示指定 → それを使う（例: "daigo/bert-base-japanese-sentiment"）
-    - 未指定 → 日本語モデルを試す → ダメなら英語（SST-2）にフォールバック
-    """
-    device = 0 if torch.cuda.is_available() else -1  # ｜ 0=GPU(CUDA), -1=CPU
+    """日本語モデル優先 → 候補が全滅なら英語SST-2"""
+    device = 0 if torch.cuda.is_available() else -1
 
-    # 1) ユーザーが明示指定している場合はそれを使う（最優先）
+    def _make(name: str):
+        print(f"[Sentiment] model={name}")
+        return hf_pipeline("sentiment-analysis", model=name, device=device)
+
+    # 明示指定が最優先
     if model_name:
-        return hf_pipeline(
-            "sentiment-analysis", model=model_name, tokenizer=model_name, device=device
-        )
+        return _make(model_name)
 
-    # 2) まずは日本語モデルを試す
-    try:
-        # 注意: 日本語モデルは公開/非公開や利用同意の有無がモデルにより異なります。
-        #       非公開/同意必須なら HF トークンが必要になります（.env 経由でOK）。
-        return hf_pipeline(
-            "sentiment-analysis",
-            model="daigo/bert-base-japanese-sentiment",
-            tokenizer="daigo/bert-base-japanese-sentiment",
-            device=device,
-        )
-    except Exception as e:
-        warnings.warn(f"[sentiment fallback to English] {e}")
-        # 3) 失敗したら英語モデル（SST-2, 2クラス）にフォールバック
-        return hf_pipeline(
-            "sentiment-analysis",
-            model="distilbert-base-uncased-finetuned-sst-2-english",
-            device=device,
-        )
+    # 日本語モデルの候補（順にトライ）
+    ja_candidates = [
+        "llm-book/bert-base-japanese-v3-wrime-sentiment",  # 推奨（WRIME）
+        "jarvisx17/japanese-sentiment-analysis",  # 2値POS/NEG
+        "Mizuiro-sakura/luke-japanese-large-sentiment-analysis-wrime",  # 多クラス
+    ]
+    for name in ja_candidates:
+        try:
+            return _make(name)
+        except Exception as e:
+            warnings.warn(f"[sentiment candidate failed] {name}: {e}")
+
+    # 英語にフォールバック
+    warnings.warn("[sentiment fallback to English] all Japanese models failed")
+    return hf_pipeline(
+        "sentiment-analysis",
+        model="distilbert-base-uncased-finetuned-sst-2-english",
+        device=device,
+    )
 
 
 def analyze_sentiments(
