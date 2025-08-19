@@ -118,13 +118,62 @@
 
 ---
 
+# 実行方法
+
+このリポジトリは **話者分離 + 文字起こし + 感情分析** をワンコマンドで実行するパイプラインです。  
+Docker が入っていればセットアップ不要で動きます（GPU/CPU 両対応）。
+
+---
+
+## 0 前提
+
+- OS: Linux / macOS / Windows（**WSL2 推奨**）
+- 必須: [Docker](https://docs.docker.com/get-docker/) / Docker Compose
+- （任意・推奨）GPU: NVIDIA + CUDA（Windows は WSL2 + NVIDIA ドライバ/WSL 用 CUDA）
+
+> **WSL2 ユーザー向け:**  
+> `docker context use default` を実行して、WSL 内の Docker デーモン（または Windows 側の Docker Desktop）を使える状態にしてください。
+
+---
+
+## 1 リポジトリ取得
+
+```bash
+git clone https://github.com/harum20112233/Audio-Information-Extraction audio-ie
+cd audio-ie
 ```
-audio-ie/
-  ├─ src/
-  │   └─ pipeline.py
-  ├─ requirements.txt
-  ├─ Dockerfile
-  └─ samples/
-      └─ demo.wav   ← 短尺テスト音源（自前で置く）
+
+## 2 hugging face トークンを設定
+
+```
+# .env
+HUGGINGFACE_TOKEN=hf_********************************
+
+```
+
+## 3 Dockerfile があるディレクトリ上でビルド
+
+```
+docker compose build
+```
+
+# 4 実行
+
+```
+docker compose run --rm app \
+  python -m src.pipeline \
+    --in <音声ファイルのパス> \
+    --out data/out/result.csv
+```
+
+# 5 主なオプション
+
+```
+--in <path>                入力音声（WAV/MP3）
+--out <path>               出力CSV
+--language <auto|ja|en…>   Whisper言語
+--num_speakers <int>       話者数ヒント
+--sentiment_model <name>   HFモデル名
+--verbose                  詳細ログ
 
 ```
