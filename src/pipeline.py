@@ -85,62 +85,55 @@ def ensure_dirs(path: str) -> None:
 # -------------------------------------------------
 # ① 区間分割：話者分離（pyannote） or 無音検出（pydub）
 # -------------------------------------------------
-def diarize_segments(wav_path: str) -> list[tuple[float, float, str]]:
+def diarize_segments(
+    wav_path: str, num_speakers: int | None = None
+) -> list[tuple[float, float, str]]:
     """
-    音声を (start_sec, end_sec, speaker_label) のリストに分割して返す。
-
-    優先順位：
-      1) USE_PYANNOTE=1 かつ HUGGINGFACE_TOKEN が設定 → pyannote で話者分離
-      2) それ以外 → pydub の無音検出で発話区間を切り出し、SPEAKER_00 固定
-
-    戻り値例：
-      [(0.23, 2.51, "SPEAKER_00"), (3.01, 5.10, "SPEAKER_01"), ...]
+    pyannote が使えれば pyannote（GPU対応）、ダメなら pydub VAD に自動フォールバック。
     """
-    # --- 1) pyannote 試行（認証が必要なモデルが多い。失敗してもOK：下で自動フォールバック） ---
-    # pyannote が使えない/失敗時は VAD（pydub）へ自動退避
     if USE_PYANNOTE and HF_TOKEN:
         try:
-            # pyannote の読み込みは重いので、USE_PYANNOTE=1 のときだけ import
             from pyannote.audio import Pipeline
 
-            # モデル名の例（利用同意が必要な場合あり）
             model_name = "pyannote/speaker-diarization-3.1"
-            # トークンを渡してパイプライン生成
             pipeline = Pipeline.from_pretrained(model_name, use_auth_token=HF_TOKEN)
-            # wav_path に対して話者分離を実行
-            diarization = pipeline(wav_path)
+
+            if torch.cuda.is_available():
+                pipeline.to(torch.device("cuda:0"))  # ← 重要
+                print("[Diarization] method=pyannote device=cuda:0")
+            else:
+                print("[Diarization] method=pyannote device=cpu")
+
+            # 既知話者数があれば指定
+            diarization = (
+                pipeline(wav_path, num_speakers=num_speakers)
+                if num_speakers
+                else pipeline(wav_path)
+            )
+
             segments: list[tuple[float, float, str]] = []
-            # diarization.itertracks(yield_label=True) で (区間, _, 話者ラベル) を得る
             for turn, _, speaker in diarization.itertracks(yield_label=True):
                 segments.append((float(turn.start), float(turn.end), str(speaker)))
-            # 1件でも取れていればそれを返す（時刻でソート）
             if segments:
                 return sorted(segments, key=lambda x: x[0])
-            # 0件だったら pydub VAD へフォールバック
         except Exception as e:
-            # 例：認証がない/規約同意がない/ネットワーク不良など
             warnings.warn(f"[pyannote fallback] {e}")
 
-    # --- 2) pydub の無音検出（単一話者ラベル） ---
-    # 音声を読み込む（pydub はミリ秒基準で扱う）
+    # ---- ここから VAD (pydub) フォールバック ----
+    print("[Diarization] method=VAD(pydub)")
     audio = AudioSegment.from_file(wav_path)
-    # “無音”のしきい値は「平均音量から一定dB下」でダイナミックに決める
     silence_thresh_db = audio.dBFS - VAD_SILENCE_MARGIN_DB
-    # 非無音＝発話っぽい区間を検出（[start_ms, end_ms] のリストが返る）
     nonsilent = detect_nonsilent(
         audio,
         min_silence_len=VAD_MIN_SILENCE_LEN_MS,
         silence_thresh=silence_thresh_db,
         seek_step=VAD_SEEK_STEP_MS,
     )
-    # 返却形式（秒・話者ラベル付き）に整形
     segments: list[tuple[float, float, str]] = []
     for start_ms, end_ms in nonsilent:
-        # 切り出し時に前後へ少し余白を加える（ブツ切れ感を抑える）
         s = max(0, start_ms - VAD_KEEP_SILENCE_MS)
         e = min(len(audio), end_ms + VAD_KEEP_SILENCE_MS)
         segments.append((s / 1000.0, e / 1000.0, "SPEAKER_00"))
-    # もし何も見つからなければ、音声全体を 1 区間として返す
     if not segments:
         segments = [(0.0, len(audio) / 1000.0, "SPEAKER_00")]
     return segments
@@ -305,6 +298,13 @@ def parse_args() -> argparse.Namespace:
         default=None,
         help="感情分析に使うHugging Faceモデル名（未指定で日本語→英語の順に自動）",
     )
+    # 話者数を指定したいとき用
+    p.add_argument(
+        "--num_speakers",
+        type=int,
+        default=None,
+        help="既知の話者数（未指定なら自動推定）",
+    )
 
     return p.parse_args()
 
@@ -365,7 +365,10 @@ def main() -> None:
     assert os.path.isfile(args.input_path), f"入力が見つかりません: {args.input_path}"
 
     # 3) 区間分割（話者分離 or 無音検出）
-    segments = diarize_segments(args.input_path)
+    segments = diarize_segments(args.input_path, num_speakers=args.num_speakers)
+    # 何セグメント切れたか表示
+    print(f"[Diarization] segments={len(segments)}")
+
     #    ここで得られるのは [(start_sec, end_sec, speaker_label), ...]
     #    無音が多いと区間数は少なめ、会話が続くと細かく刻まれます。
 
