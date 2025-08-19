@@ -145,8 +145,11 @@ cd audio-ie
 
 ## 2 hugging face トークンを設定
 
+`.env.example`を参照し，`.env`を作成してください
+
 ```
 # .env
+USE_PYANNOTE=1
 HUGGINGFACE_TOKEN=hf_********************************
 
 ```
