@@ -6,7 +6,7 @@
 #
 # 【全体像】
 #   入力音声
-#     ├─ ① 区間分割（話者分離 or 無音検出）
+#     ├─ ① 区間分割（話者分離pyannote.audio or 無音検出pyDub）
 #     ├─ ② 文字起こし（Whisper）
 #     ├─ ③ 感情分析（Transformers）
 #     └─ ④ CSV 出力
