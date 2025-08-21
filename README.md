@@ -143,10 +143,13 @@ docker compose run --rm app \
 
 ```
 --in <path>                入力音声（WAV/MP3）
---out <path>               出力CSV
---language <auto|ja|en…>   Whisper言語
+--out <path>               出力CSVの保存先
+--language <auto|ja|en…>   Whisper言語 'auto' で自動判定、'ja' 固定など
 --num_speakers <int>       話者数ヒント
 --sentiment_model <name>   HFモデル名
 --verbose                  詳細ログ
-
+--whisper_model: Whisperモデル（tiny/base/small/…）
+--device: 'auto'|'cpu'|'cuda'（Whisperの実行先）
+--sentiment_model: 感情モデル名（未指定なら日本語候補→英語に自動フォールバック）
+--num_speakers: 既知の話者数（pyannoteに渡すヒント）
 ```
