@@ -44,6 +44,8 @@ services:
 
     # コンテナに渡す環境変数を定義（.env から補完される）
     environment:
+      # Python の出力をバッファリングしない（リアルタイムでログに出力）
+      - PYTHONUNBUFFERED=1
       # Hugging Face のアクセストークン。必要なモデルで認証が要る場合に使用
       - HUGGINGFACE_TOKEN=${HUGGINGFACE_TOKEN}
       - HUGGINGFACE_HUB_TOKEN=${HUGGINGFACE_TOKEN}
@@ -61,6 +63,20 @@ services:
     # 疑似端末を割り当てる。printの改行や対話実行が安定するため開発時は true 推奨
     tty: true
 
-    # コンテナ起動時に実処理をデフォルト実行したい場合は下を有効化
-    # （コメント解除で smoke.py の代わりにパイプラインを実行）
-    # command: ["python", "-m", "src.pipeline", "--in", "samples/sample.wav", "--out", "data/out/result.csv"]
+    #デバッグ専用プロファイル
+  app-debug:
+    extends:
+      service: app
+    profiles:
+      - debug
+    ports:
+      - "5678:5678"
+    command: >
+      python -m debugpy --wait-for-client --listen 0.0.0.0:5678
+      -m src.pipeline
+      --in samples/sample.wav
+      --out data/out/result.csv
+      --whisper_model small
+      --language ja
+      --device auto
+      --sentiment_model llm-book/bert-base-japanese-v3-wrime-sentiment

@@ -139,6 +139,12 @@ docker compose run --rm app \
     --out data/out/result.csv
 ```
 
+vscode 上でデバッグを待機するコマンド
+
+```
+COMPOSE_PROFILES=debug docker compose up --build app-debug
+```
+
 # 5 主なオプション
 
 ```
