@@ -132,6 +132,11 @@ docker compose build
 
 # 4 実行
 
+docker内でgpuが使えるかを確認するコマンド
+```
+docker run --rm --gpus all nvidia/cuda:12.8.0-base-ubuntu22.04 nvidia-smi
+```
+
 ```
 docker compose run --rm app \
   python -m src.pipeline \
