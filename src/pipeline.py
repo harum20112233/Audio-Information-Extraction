@@ -110,32 +110,48 @@ def diarize_segments(
                 if num_speakers
                 else pipeline(wav_path)
             )
+            # [start, end, speaker]のリスト
+            segments: list[tuple[float, float, str]] = []  # 出力リストを初期化
 
-            segments: list[tuple[float, float, str]] = []
+            # 各発話区間と話者ラベルを列挙
+            # track: トラック番号（同じ話者が同時に複数発話するときなどの区別用）は今回使わないので、_で無視
             for turn, _, speaker in diarization.itertracks(yield_label=True):
+                # 秒単位にキャストしタプルでsegmentsリストに追加
                 segments.append((float(turn.start), float(turn.end), str(speaker)))
-            if segments:
+            if segments:  # 1件以上得られたらそのまま返却。
+                # 開始時刻でソートし時間順に整列したものを返す
                 return sorted(segments, key=lambda x: x[0])
-        except Exception as e:
+        except Exception as e:  # モデル未同意/ネット不通/VRAM不足等の例外処理
             warnings.warn(f"[pyannote fallback] {e}")
 
     # ---- ここから VAD (pydub) フォールバック ----
+    # ログにフォールバックしたことを明示。
     print("[Diarization] method=VAD(pydub)")
+    # pydubで音声ファイルを読み込む
     audio = AudioSegment.from_file(wav_path)
+    # 無音と判定する閾値を設定（平均音量からのマージン）。
     silence_thresh_db = audio.dBFS - VAD_SILENCE_MARGIN_DB
+    # 非無音（発話らしい）区間のリストを取得。
     nonsilent = detect_nonsilent(
         audio,
         min_silence_len=VAD_MIN_SILENCE_LEN_MS,
         silence_thresh=silence_thresh_db,
         seek_step=VAD_SEEK_STEP_MS,
     )
+    # VAD結果を格納するリストを初期化
     segments: list[tuple[float, float, str]] = []
+    # 取得した各非無音区間に対して処理
     for start_ms, end_ms in nonsilent:
+        # 先頭に余白を付与（負方向に出ないようmax）
         s = max(0, start_ms - VAD_KEEP_SILENCE_MS)
+        # 末尾に余白を付与（音声が途切れないようmin）
         e = min(len(audio), end_ms + VAD_KEEP_SILENCE_MS)
+        # 秒に変換し単一話者ラベルで保存。
         segments.append((s / 1000.0, e / 1000.0, "SPEAKER_00"))
-    if not segments:
+    if not segments:  # まったく非無音が見つからなかった場合
+        # 全体を一つの区間として扱う
         segments = [(0.0, len(audio) / 1000.0, "SPEAKER_00")]
+    # [(start,end,speaker)]形式のリストを返す
     return segments
 
 
