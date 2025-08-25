@@ -186,10 +186,13 @@ def transcribe_segments(
     # --- Whisper モデルをロード（1回だけ） ---
     #     注意：大きいモデルほど精度↑/速度↓（GPU推奨）
     model = whisper.load_model(model_name, device="cuda" if use_cuda else "cpu")
-    print(f"[Whisper] device = {model.device}")  # ← 追加
+    # 実際に使用されるデバイスを出力
+    print(f"[Whisper] device = {model.device}")
 
     # --- 元音声を読み込んで、区間ごとに切り出し → 一時WAV を作って transcribe ---
+    # pydubの AudioSegment で元音声全体を読み込む
     audio = AudioSegment.from_file(wav_path)
+    # 出力結果を格納するリストを初期化
     results: list[tuple[float, float, str, str]] = []
 
     for s, e, spk in segments:
@@ -201,15 +204,19 @@ def transcribe_segments(
             clip.export(tmp.name, format="wav")
 
             # 3) transcribe を実行。language='auto' のときは指定しない。
-            kwargs = {"fp16": use_cuda}  # ｜ GPUなら半精度で高速化
+            # GPUなら半精度(fp16)で高速化
+            kwargs = {"fp16": use_cuda}
             if language and language.lower() != "auto":
+                # 言語固定がある場合は指定
                 kwargs["language"] = language
 
+            # Whisperで文字起こしを実行
             out = model.transcribe(tmp.name, **kwargs)
             text = (out.get("text") or "").strip()
 
+            # (start, end, speaker, text)のタプルの結果を追加
             results.append((s, e, spk, text))
-
+    # 全区間の文字起こしリストを返す
     return results
 
 
