@@ -104,12 +104,16 @@ def diarize_segments(
             else:
                 print("[Diarization] method=pyannote device=cpu")
 
+            print(f"[Diarization]  diarization start...")
+
             # 既知話者数があれば指定
             diarization = (
                 pipeline(wav_path, num_speakers=num_speakers)
                 if num_speakers
                 else pipeline(wav_path)
             )
+
+            print(f"[Diarization]  diarization completed.")
             # [start, end, speaker]のリスト
             segments: list[tuple[float, float, str]] = []  # 出力リストを初期化
 
@@ -185,9 +189,12 @@ def transcribe_segments(
 
     # --- Whisper モデルをロード（1回だけ） ---
     #     注意：大きいモデルほど精度↑/速度↓（GPU推奨）
+    print(f"[Whisper] model load... / model = {model_name}")
     model = whisper.load_model(model_name, device="cuda" if use_cuda else "cpu")
     # 実際に使用されるデバイスを出力
-    print(f"[Whisper] device = {model.device}")
+    print(
+        f"[Whisper] completed to load. / model = {model_name} / device = {model.device}"
+    )
 
     # --- 元音声を読み込んで、区間ごとに切り出し → 一時WAV を作って transcribe ---
     # pydubの AudioSegment で元音声全体を読み込む
