@@ -74,7 +74,7 @@ services:
     command: >
       python -m debugpy --wait-for-client --listen 0.0.0.0:5678
       -m src.pipeline
-      --in samples/sample.wav
+      --in samples/amagasaki/amagasaki__2014_10_28_32s.mp3
       --out data/out/result.csv
       --whisper_model small
       --language ja
