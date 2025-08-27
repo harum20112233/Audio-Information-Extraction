@@ -15,6 +15,11 @@ huggingface_hub==0.24.5       # モデルのダウンロード/認証（HFトー
 fugashi>=1.3.0                # 形態素解析ライブラリ（日本語処理）
 unidic-lite>=1.0.8            # 軽量辞書（ipadic でも可）
 debugpy>=1.8.1                # VSCode などのデバッガーを使うためのライブラリ
+datasets                       # データセット管理ライブラリ
+accelerate                     # Hugging Face のモデルを高速化するためのライブラリ
+peft                           # LoRA/PEFT
+evaluate                       # モデル評価用ライブラリ
+jiwer                          # WER/CER 計算
 
 
 # 備考:
