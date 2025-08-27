@@ -1,68 +1,78 @@
-# ============================================
-# train_asr.py
-# --------------------------------------------
-# ASR = Automatic Speech Recognition（自動音声認識）
-# 音声 → テキスト（文字起こし）を行うモデルを学習します。
-#
-# このスクリプトでは Hugging Face Transformers を用いて
-# OpenAI Whisper モデルをベースに追加学習を行います。
-#
-# 主な用途:
-#   - 専門用語や固有名詞の認識精度を改善するためのファインチューニング
-#   - 小規模データでのドメイン適応（医療・自治体・教育など）
-#
-# 対応する学習方式:
-#   1) フルファインチューニング（全パラメータ更新）
-#   2) LoRA/PEFT による軽量学習（VRAM節約・高速）
-#
-# 入力:
-#   - CSV/TSV: audio_path と text の列を持つデータ
-#       audio_path: 音声ファイルへのパス（wav等、16kHz推奨）
-#       text      : 音声に対応する文字起こし（正解ラベル）
-#
-# 出力:
-#   - 学習済みモデル（Hugging Face Transformers形式）
-#   - 評価指標: 単語誤り率 (WER)、文字誤り率 (CER)
-#
-# 使用例:
-# 例: small を LoRA で微調整し、最終保存は LoRAマージ版（通常モデル互換）
-# docker compose run --rm app \
-#   python -m src.train_asr \
-#     --base_model openai/whisper-small \
-#     --train_csv data/asr/train.csv \
-#     --valid_csv data/asr/valid.csv \
-#     --output_dir models/whisper-small-med-ft \
-#     --use_lora \
-#     --lora_r 16 --lora_alpha 32 --lora_dropout 0.05 \
-#     --num_train_epochs 5 \
-#     --per_device_train_batch_size 8 \
-#     --per_device_eval_batch_size 8 \
-#     --gradient_accumulation_steps 2 \
-#     --learning_rate 1e-5 \
-#     --fp16 --gradient_checkpointing \
-#     --merge_lora_and_save
-#
-#
-# ============================================
+# train_asr.py (torchcodec 非依存 / Whisper fine-tune 完成版)
 
+"""
+============================================
+- OpenAI Whisper を Hugging Face Transformers で追加学習
+- フルFT / LoRA(PEFT) 両対応
+- 16 kHz 推奨。librosa があれば自動リサンプリング
+- DataCollatorSpeechSeq2SeqWithPadding 採用（音声入力に必須）
+- WER / CER を評価。最良モデルを保存
+
+CSV/TSV 仕様:
+  - 必須列: audio_path, text
+  - audio_path は CSV/TSV の場所からの相対パスまたは絶対パス
+
+使用例:
+  docker compose run --rm app \
+    python -m src.train_asr \
+      --base_model openai/whisper-small \
+      --train_csv train_data/asr_2min/train.csv \
+      --valid_csv train_data/asr_2min/valid.csv \
+      --output_dir models/whisper-small-ja-lora \
+      --use_lora \
+      --lora_r 16 --lora_alpha 32 --lora_dropout 0.05 \
+      --num_train_epochs 5 \
+      --per_device_train_batch_size 8 \
+      --per_device_eval_batch_size 8 \
+      --gradient_accumulation_steps 2 \
+      --learning_rate 1e-5 \
+      --weight_decay 0.01 \
+      --warmup_ratio 0.1 \
+      --fp16 \
+      --gradient_checkpointing \
+      --merge_lora_and_save
+============================================
+"""
 
 from __future__ import annotations
-import argparse, os, math
+import argparse
+import os
+import math
+import warnings
+from typing import Dict, Any
+
+import numpy as np
 import torch
 import datasets
-from datasets import load_dataset, Audio
+from datasets import load_dataset
+
 from transformers import (
     WhisperForConditionalGeneration,
     WhisperProcessor,
     Seq2SeqTrainingArguments,
     Seq2SeqTrainer,
     EarlyStoppingCallback,
-    DataCollatorForSeq2Seq,
+    DataCollatorSpeechSeq2SeqWithPadding,
 )
+
 import evaluate
+import soundfile as sf
 
 # ---- LoRA（任意） ----
-from peft import LoraConfig, get_peft_model, PeftModel
+from peft import LoraConfig, get_peft_model
+
+# librosa は任意（16kHz以外の入力を自動で16kへ）
+try:
+    import librosa  # type: ignore
+
+    _HAS_LIBROSA = True
+except Exception:
+    _HAS_LIBROSA = False
+
+
+# =============================
+#  argparse
+# =============================
 
 
 def parse_args():
@@ -71,10 +81,14 @@ def parse_args():
     p.add_argument("--train_csv", required=True)
     p.add_argument("--valid_csv", required=True)
     p.add_argument("--output_dir", required=True)
+
+    # LoRA
     p.add_argument("--use_lora", action="store_true")
     p.add_argument("--lora_r", type=int, default=16)
     p.add_argument("--lora_alpha", type=int, default=32)
     p.add_argument("--lora_dropout", type=float, default=0.05)
+
+    # 学習
     p.add_argument("--num_train_epochs", type=int, default=5)
     p.add_argument("--per_device_train_batch_size", type=int, default=8)
     p.add_argument("--per_device_eval_batch_size", type=int, default=8)
@@ -82,21 +96,42 @@ def parse_args():
     p.add_argument("--learning_rate", type=float, default=1e-5)
     p.add_argument("--weight_decay", type=float, default=0.01)
     p.add_argument("--warmup_ratio", type=float, default=0.1)
+
+    # 省メモリ/精度
     p.add_argument("--fp16", action="store_true")
     p.add_argument("--bf16", action="store_true")
     p.add_argument("--gradient_checkpointing", action="store_true")
+
+    # 評価/保存/ロギング
     p.add_argument("--eval_steps", type=int, default=200)
     p.add_argument("--save_steps", type=int, default=200)
     p.add_argument("--logging_steps", type=int, default=50)
     p.add_argument("--patience", type=int, default=5)
-    p.add_argument("--language", default="ja")  # 日本語固定
-    p.add_argument("--task", default="transcribe")  # translate ではなく transcribe
+
+    # Whisper 言語/タスク
+    p.add_argument("--language", default="ja")
+    p.add_argument("--task", default="transcribe")
+
+    # 生成系（評価時）
+    p.add_argument("--generation_max_length", type=int, default=225)
+    p.add_argument("--generation_num_beams", type=int, default=1)
+
+    # I/O
+    p.add_argument("--num_workers", type=int, default=4)
+
+    # LoRA をマージして通常モデルとして保存するか
     p.add_argument(
         "--merge_lora_and_save",
         action="store_true",
-        help="LoRAをベースにマージして通常モデルとして保存",
+        help="LoRA をベースにマージして通常モデルとして保存",
     )
+
     return p.parse_args()
+
+
+# =============================
+#  Dataset loader
+# =============================
 
 
 def load_csv_as_dataset(path: str):
@@ -105,54 +140,136 @@ def load_csv_as_dataset(path: str):
     return datasets.load_dataset("csv", data_files=path, delimiter=sep, split="train")
 
 
+def build_prepare_fn(processor: WhisperProcessor, base_dir: str):
+    """CSV の行を Whisper 入力/ラベルへ変換する関数を返す。
+    - input_features: log-Mel (numpy)
+    - labels: list[int]
+    """
+
+    def prepare(batch: Dict[str, Any]) -> Dict[str, Any]:
+        rel = batch["audio_path"]
+        path = rel if os.path.isabs(rel) else os.path.join(base_dir, rel)
+        if not os.path.exists(path):
+            raise FileNotFoundError(f"audio file not found: {path}")
+
+        audio, sr = sf.read(path)  # np.ndarray (T,) or (T, C)
+        if audio.ndim > 1:
+            audio = np.mean(audio, axis=1)  # モノラル化
+
+        if sr != 16000:
+            if _HAS_LIBROSA:
+                audio = librosa.resample(audio, orig_sr=sr, target_sr=16000)
+                sr = 16000
+            else:
+                raise RuntimeError(
+                    f"Expected 16kHz but got {sr}. Install librosa or provide 16k audio."
+                )
+
+        # 入力特徴量（log-Mel）
+        inputs = processor.feature_extractor(
+            audio, sampling_rate=sr, return_tensors="pt"
+        )
+
+        # ラベル（forced_decoder_ids により <|ja|><|transcribe|> は自動付与）
+        label_ids = processor.tokenizer(
+            batch["text"], add_special_tokens=True
+        ).input_ids
+
+        return {
+            "input_features": inputs.input_features[0].numpy(),  # numpy のまま
+            "labels": label_ids,  # list[int] のまま
+        }
+
+    return prepare
+
+
+# =============================
+#  Metrics (WER / CER)
+# =============================
+
+
+def build_metrics_fn(processor: WhisperProcessor):
+    wer_metric = evaluate.load("wer")
+    cer_metric = evaluate.load("cer")
+
+    def compute_metrics(pred):
+        pred_ids = pred.predictions
+        # pred.predictions が (logits, ...) の場合に備える
+        if isinstance(pred_ids, (tuple, list)):
+            pred_ids = pred_ids[0]
+
+        pred_str = processor.batch_decode(pred_ids, skip_special_tokens=True)
+
+        label_ids = pred.label_ids
+        label_ids[label_ids == -100] = processor.tokenizer.pad_token_id
+        label_str = processor.batch_decode(label_ids, skip_special_tokens=True)
+
+        return {
+            "wer": wer_metric.compute(predictions=pred_str, references=label_str),
+            "cer": cer_metric.compute(predictions=pred_str, references=label_str),
+        }
+
+    return compute_metrics
+
+
+# =============================
+#  Main
+# =============================
+
+
 def main():
     args = parse_args()
     os.makedirs(args.output_dir, exist_ok=True)
 
-    # 1) Processor / Model 読み込み
+    # 1) Processor / Model
     processor = WhisperProcessor.from_pretrained(
         args.base_model, language=args.language, task=args.task
     )
     model = WhisperForConditionalGeneration.from_pretrained(args.base_model)
 
-    # 推論時に <|ja|><|transcribe|> を自動で入れるよう設定
-    model.config.forced_decoder_ids = processor.get_decoder_prompt_ids(
+    # pad token 明示設定
+    processor.tokenizer.pad_token = processor.tokenizer.eos_token
+    model.config.pad_token_id = processor.tokenizer.pad_token_id
+
+    # 推論時プロンプト（日本語/転写を固定）
+    model.generation_config.forced_decoder_ids = processor.get_decoder_prompt_ids(
         language=args.language, task=args.task
     )
-    model.config.suppress_tokens = []
+    model.generation_config.suppress_tokens = []
+
+    # gradient checkpointing を使うなら use_cache=False
+    if args.gradient_checkpointing:
+        model.gradient_checkpointing_enable()
+        model.config.use_cache = False
 
     # 2) データ読み込み
     train_ds = load_csv_as_dataset(args.train_csv)
     valid_ds = load_csv_as_dataset(args.valid_csv)
 
-    # 16k へ統一
-    sampling_rate = 16000
-    train_ds = train_ds.cast_column("audio_path", Audio(sampling_rate=sampling_rate))
-    valid_ds = valid_ds.cast_column("audio_path", Audio(sampling_rate=sampling_rate))
+    train_base = os.path.dirname(os.path.abspath(args.train_csv))
+    valid_base = os.path.dirname(os.path.abspath(args.valid_csv))
 
-    def prepare(batch):
-        # 音声テンソル
-        audio = batch["audio_path"]["array"]
-        inputs = processor.feature_extractor(
-            audio, sampling_rate=sampling_rate, return_tensors="pt"
-        )
-        with processor.as_target_processor():
-            labels = processor.tokenizer(batch["text"])
-        batch_out = {
-            "input_features": inputs.input_features[0],
-            "labels": torch.tensor(labels.input_ids),
-        }
-        return batch_out
+    num_proc = min(os.cpu_count() or 1, max(1, args.num_workers))
 
-    train_ds = train_ds.map(prepare, remove_columns=train_ds.column_names, num_proc=1)
-    valid_ds = valid_ds.map(prepare, remove_columns=valid_ds.column_names, num_proc=1)
+    train_ds = train_ds.map(
+        build_prepare_fn(processor, train_base),
+        remove_columns=train_ds.column_names,
+        num_proc=num_proc,
+        desc="prepare-train",
+    )
+    valid_ds = valid_ds.map(
+        build_prepare_fn(processor, valid_base),
+        remove_columns=valid_ds.column_names,
+        num_proc=num_proc,
+        desc="prepare-valid",
+    )
 
-    # 3) LoRA オプション
+    # 3) LoRA（任意）
     if args.use_lora:
         lora_cfg = LoraConfig(
             r=args.lora_r,
             lora_alpha=args.lora_alpha,
-            target_modules=["q_proj", "v_proj", "k_proj", "out_proj", "fc1", "fc2"],
+            target_modules=["q_proj", "k_proj", "v_proj", "out_proj", "fc1", "fc2"],
             lora_dropout=args.lora_dropout,
             bias="none",
             task_type="SEQ_2_SEQ_LM",
@@ -160,25 +277,16 @@ def main():
         model = get_peft_model(model, lora_cfg)
         model.print_trainable_parameters()
 
-    # 4) 評価指標（WER/CER）
-    wer_metric = evaluate.load("wer")
-    cer_metric = evaluate.load("cer")
+    # 4) Metrics
+    compute_metrics = build_metrics_fn(processor)
 
-    def compute_metrics(pred):
-        pred_ids = pred.predictions
-        # whisperは generate 出力のため logits ではなく token_ids が来る想定
-        pred_str = processor.batch_decode(pred_ids, skip_special_tokens=True)
-        label_ids = pred.label_ids
-        label_ids[label_ids == -100] = processor.tokenizer.pad_token_id
-        label_str = processor.batch_decode(label_ids, skip_special_tokens=True)
+    # 5) Data collator（音声専用）
+    data_collator = DataCollatorSpeechSeq2SeqWithPadding(
+        processor=processor,
+        decoder_start_token_id=model.config.decoder_start_token_id,
+    )
 
-        wer = wer_metric.compute(predictions=pred_str, references=label_str)
-        cer = cer_metric.compute(predictions=pred_str, references=label_str)
-        return {"wer": wer, "cer": cer}
-
-    # 5) Trainer 設定
-    data_collator = DataCollatorForSeq2Seq(processor.tokenizer, model=model)
-
+    # 6) TrainingArguments
     training_args = Seq2SeqTrainingArguments(
         output_dir=args.output_dir,
         per_device_train_batch_size=args.per_device_train_batch_size,
@@ -201,30 +309,39 @@ def main():
         load_best_model_at_end=True,
         metric_for_best_model="wer",
         greater_is_better=False,
+        # 音声タスクでは必須
+        remove_unused_columns=False,
+        # 速度・省メモリ
+        group_by_length=True,
+        dataloader_num_workers=max(0, args.num_workers),
+        # 生成まわり（評価時）
+        generation_max_length=args.generation_max_length,
+        generation_num_beams=args.generation_num_beams,
     )
 
+    # 7) Trainer
     trainer = Seq2SeqTrainer(
         model=model,
         args=training_args,
         data_collator=data_collator,
-        tokenizer=processor.feature_extractor,  # 入力側の正規化をtokenizerの代わりに使う
+        tokenizer=processor,  # processor を渡すのが最も安全
         train_dataset=train_ds,
         eval_dataset=valid_ds,
         compute_metrics=compute_metrics,
         callbacks=[EarlyStoppingCallback(early_stopping_patience=args.patience)],
     )
 
+    # 8) Train
     trainer.train()
 
-    # 6) 保存
+    # 9) Save
     if args.use_lora and args.merge_lora_and_save:
-        # LoRAをベースにマージして通常モデルとして保存（推論が簡単になる）
-        model = model.merge_and_unload()
-        model.save_pretrained(args.output_dir)
+        # LoRA 重みをベースへマージして通常モデルとして保存
+        merged = model.merge_and_unload()
+        merged.save_pretrained(args.output_dir)
         processor.save_pretrained(args.output_dir)
     else:
-        # そのまま保存（LoRAはアダプタとして保存／フルFTは通常保存）
-        trainer.save_model(args.output_dir)
+        trainer.save_model(args.output_dir)  # アダプタ含む/もしくはフルFT済
         processor.save_pretrained(args.output_dir)
 
     print("[OK] saved:", args.output_dir)
