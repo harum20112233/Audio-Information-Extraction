@@ -116,6 +116,7 @@ cd audio-ie
 ## 2 hugging face トークンを設定
 
 `.env.example`を参照し，`.env`を作成してください
+注意: pyannote.audio のモデルを使うには、Hugging Face のトークン設定だけでなく、使用する各モデル（各リポジトリ）の利用規約への同意が必要。Hugging Face にログインし、対象モデルのページで同意してから実行すること。
 
 ```
 # .env
@@ -132,7 +133,8 @@ docker compose build
 
 # 4 実行
 
-docker内でgpuが使えるかを確認するコマンド
+docker 内で gpu が使えるかを確認するコマンド
+
 ```
 docker run --rm --gpus all nvidia/cuda:12.8.0-base-ubuntu22.04 nvidia-smi
 ```
