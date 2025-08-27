@@ -20,7 +20,7 @@ accelerate                     # Hugging Face のモデルを高速化するた�
 peft                           # LoRA/PEFT
 evaluate                       # モデル評価用ライブラリ
 jiwer                          # WER/CER 計算
-
+torchcodec                    # 音声コーデック系ライブラリ
 
 # 備考:
 # - torch/torchvision/torchaudio はベースイメージ（pytorch/pytorch）側に含まれている前提です
