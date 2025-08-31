@@ -8,7 +8,7 @@
 # 実行例:
 # docker compose run --rm app \
 #   python -m src.make_asr_dataset \
-#     --input_csv data/out/result32s.csv \
+#     --input_csv data/out/result2min.csv \
 #     --audio_root samples/amagasaki \
 #     --out_dir train_data/asr \
 #     --val_ratio 0.1 --test_ratio 0.1 \
