@@ -52,7 +52,6 @@ from transformers import (
     Seq2SeqTrainingArguments,
     Seq2SeqTrainer,
     EarlyStoppingCallback,
-    DataCollatorSpeechSeq2SeqWithPadding,
 )
 
 import evaluate
@@ -68,6 +67,81 @@ try:
     _HAS_LIBROSA = True
 except Exception:
     _HAS_LIBROSA = False
+
+import inspect
+
+
+class WhisperTrainer(Seq2SeqTrainer):
+    """Whisper 用：forward に不要なキー（input_ids など）を確実に落とす"""
+
+    def compute_loss(self, model, inputs, return_outputs=False):
+        # モデルの forward シグネチャにある引数だけを許可（最強フィルタ）
+        fwd_params = set(inspect.signature(model.forward).parameters.keys())
+        # 念のため 'input_ids' は明示的に落とす（Whisperは受け付けない）
+        if "input_ids" in inputs:
+            inputs = {k: v for k, v in inputs.items() if k != "input_ids"}
+        # シグネチャでフィルタ
+        inputs = {k: v for k, v in inputs.items() if k in fwd_params}
+        # 返り値形式が違う版への互換（return_dict が必要なら自動ON）
+        if "return_dict" in fwd_params and "return_dict" not in inputs:
+            inputs["return_dict"] = True
+
+        # デバッグ1回だけ（不要になったら削除OK）
+        if not hasattr(self, "_dbg_once"):
+            print("[DEBUG after-filter keys]:", list(inputs.keys()))
+            self._dbg_once = True
+        outputs = model(**inputs)
+        loss = outputs["loss"] if isinstance(outputs, dict) else outputs[0]
+        return (loss, outputs) if return_outputs else loss
+
+
+# ---- Whisper用コラトラ（バックポート） -----------------------
+class DataCollatorSpeechSeq2SeqWithPadding:
+    """
+    Whisper向けの最小限データコラトラ。
+    入力要素: {"input_features": np.ndarray(80, T) もしくは (T, 80), "labels": list[int]}
+    出力:
+      - input_features: FloatTensor [B, 80, Tmax]
+      - labels: LongTensor [B, Lmax] （pad_tokenは -100 に変換）
+    """
+
+    def __init__(
+        self, processor: WhisperProcessor, decoder_start_token_id: int | None = None
+    ):
+        self.processor = processor
+        self.decoder_start_token_id = decoder_start_token_id
+        self.pad_token_id = processor.tokenizer.pad_token_id
+
+    def __call__(self, features: list[dict]) -> dict[str, torch.Tensor]:
+        # 1) 音声特徴のパディング
+        #   processor.feature_extractor.pad が期待する形に揃える
+        input_feats = []
+        for f in features:
+            x = f["input_features"]
+            x = torch.tensor(x)
+            # 形が (T, 80) なら (80, T) に転置して合わせる
+            if x.ndim == 2 and x.shape[0] != 80 and x.shape[1] == 80:
+                x = x.transpose(0, 1)
+            input_feats.append({"input_features": x})
+
+        batch_inputs = self.processor.feature_extractor.pad(
+            input_feats, return_tensors="pt"
+        )
+
+        # 2) ラベルのパディング（pad_token_id → -100）
+        label_ids = [f["labels"] for f in features]
+        labels = self.processor.tokenizer.pad(
+            {"input_ids": label_ids}, padding=True, return_tensors="pt"
+        )["input_ids"]
+        labels = labels.masked_fill(labels == self.pad_token_id, -100)
+
+        return {
+            "input_features": batch_inputs["input_features"].to(torch.float32),
+            "labels": labels.long(),
+        }
+
+
+# --------------------------------------------------------------
 
 
 # =============================
@@ -310,9 +384,9 @@ def main():
         metric_for_best_model="wer",
         greater_is_better=False,
         # 音声タスクでは必須
-        remove_unused_columns=False,
+        remove_unused_columns=True,
         # 速度・省メモリ
-        group_by_length=True,
+        group_by_length=False,  # 長さでグルーピングしない
         dataloader_num_workers=max(0, args.num_workers),
         # 生成まわり（評価時）
         generation_max_length=args.generation_max_length,
@@ -320,11 +394,11 @@ def main():
     )
 
     # 7) Trainer
-    trainer = Seq2SeqTrainer(
+    trainer = WhisperTrainer(
         model=model,
         args=training_args,
         data_collator=data_collator,
-        tokenizer=processor,  # processor を渡すのが最も安全
+        tokenizer=None,  # ← Whisper 学習では不要なのでNone。
         train_dataset=train_ds,
         eval_dataset=valid_ds,
         compute_metrics=compute_metrics,
