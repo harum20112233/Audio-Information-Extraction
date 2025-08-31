@@ -10,12 +10,12 @@
 #   python -m src.make_asr_dataset \
 #     --input_csv data/out/result32s.csv \
 #     --audio_root samples/amagasaki \
-#     --out_dir data/asr \
+#     --out_dir train_data/asr \
 #     --val_ratio 0.1 --test_ratio 0.1 \
 #     --min_sec 0.6 --max_sec 20
 #
 # できるもの:
-# data/asr/
+# train_data/asr/
 # ├── clips/               # ex_000001.wav 等（16kHz/mono）
 # ├── train.csv            # audio_path,text  （out_dir起点の相対パス）
 # ├── valid.csv
