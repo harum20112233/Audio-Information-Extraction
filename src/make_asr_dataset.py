@@ -1,6 +1,6 @@
 # ============================================
 # src/make_asr_dataset.py
-# CSV( pipeline出力 ) → 学習用クリップ + train/valid/test.csv を生成
+# CSV( pipeline出力 ) → pipelineで出力されたcsvのtranscriptなどの結果を調整したcsv → 学習用クリップ + train/valid/test.csv を生成
 # 入力CSV 例の必須列:
 #   file,start_sec,end_sec,transcript
 # ※ file は元音声のファイル名（相対/絶対は --audio_root と組み合わせて解決）
