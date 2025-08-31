@@ -4,7 +4,7 @@
 # =========================
 
 openai-whisper==20231117      # 音声認識（文字起こし）ライブラリ。ffmpegと一緒に使うことが多い
-transformers==4.44.0          # 感情分析などで使うHugging Faceのモデル運用ライブラリ
+transformers==4.55.4          # 感情分析などで使うHugging Faceのモデル運用ライブラリ
 pyannote.audio==3.1.1         # 話者分離/話者ダイアライゼーション向けの定番ライブラリ
 soundfile>=0.12               # ベースイメージに libsndfile が入っていればOKですが、Python側の soundfile を入れておくと安心。
 pydub==0.25.1                 # シンプルな音声の分割/結合などをPythonで行うための補助ライブラリ
