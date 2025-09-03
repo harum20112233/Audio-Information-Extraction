@@ -25,19 +25,19 @@ out_dir/
 
 from __future__ import (
     annotations,
-)  # 前方参照の型ヒントを有効化（Python 3.7+）  # noqa: E402
+)  # 前方参照の型ヒントを有効化（Python 3.7+）
 
-import argparse  # コマンドライン引数の定義・解析  # noqa: E402
-import os  # パス操作・ディレクトリ作成等  # noqa: E402
-import csv  # CSVの読み書き  # noqa: E402
-import math  # ここでは未使用だが、閾値計算などを拡張する余地  # noqa: E402
-import random  # データ分割時のシャッフルに使用  # noqa: E402
-import re  # テキスト正規化時の正規表現置換に使用  # noqa: E402
-import unicodedata  # 全角半角の統一（NFKC）に使用  # noqa: E402
-from typing import List, Tuple  # 型ヒントのためのList/Tuple  # noqa: E402
+import argparse  # コマンドライン引数の定義・解析
+import os  # パス操作・ディレクトリ作成等
+import csv  # CSVの読み書き
+import math  # ここでは未使用だが、閾値計算などを拡張する余地
+import random  # データ分割時のシャッフルに使用
+import re  # テキスト正規化時の正規表現置換に使用
+import unicodedata  # 全角半角の統一（NFKC）に使用
+from typing import List, Tuple  # 型ヒントのためのList/Tuple
 from pydub import (
     AudioSegment,
-)  # 任意フォーマット読み込み・WAV出力・リサンプルに使用  # noqa: E402
+)  # 任意フォーマット読み込み・WAV出力・リサンプルに使用
 
 
 def normalize_text_ja(s: str) -> str:  # 日本語テキストの最小限の正規化を行う関数
