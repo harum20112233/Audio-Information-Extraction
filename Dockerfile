@@ -38,11 +38,12 @@ ENV PIP_NO_CACHE_DIR=1 PIP_DISABLE_PIP_VERSION_CHECK=1
 # =========================
 COPY requirements.txt .
 
-# =========================
-# pip を最新化し、requirements.txt に基づいて依存をインストールします
-# - ここでWhisper / Transformers / pyannote.audio などが入ります
-# =========================
-RUN pip install --upgrade pip && pip install -r requirements.txt
+
+# 依存をインストール → 依存矛盾チェック → ロック記録
+RUN python -m pip install --upgrade pip && \
+    python -m pip install --no-cache-dir -r requirements.txt && \
+    python -m pip check && \
+    python -m pip freeze > /work/pip_freeze.txt
 
 # =========================
 # スモークテスト用のPythonスクリプトをコピーします

@@ -80,3 +80,31 @@ services:
       --language ja
       --device auto
       --sentiment_model llm-book/bert-base-japanese-v3-wrime-sentiment
+
+  # 学習デバッグ専用プロファイル
+  train-debug:
+    extends:
+      service: app
+    profiles:
+      - debug
+    ports:
+      - "5679:5679"
+    command: >
+      python -m debugpy --wait-for-client --listen 0.0.0.0:5679
+      -m src.train_asr
+      --base_model openai/whisper-small
+      --train_csv train_data/asr_2min/train.csv
+      --valid_csv train_data/asr_2min/valid.csv
+      --output_dir models/whisper-small-ja-lora
+      --use_lora
+      --lora_r 16 --lora_alpha 32 --lora_dropout 0.05
+      --num_train_epochs 5
+      --per_device_train_batch_size 8
+      --per_device_eval_batch_size 8
+      --gradient_accumulation_steps 2
+      --learning_rate 1e-5
+      --weight_decay 0.01
+      --warmup_ratio 0.1
+      --fp16
+      --gradient_checkpointing
+      --merge_lora_and_save

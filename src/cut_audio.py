@@ -16,7 +16,7 @@ sound = AudioSegment.from_file(
     "samples/amagasaki/amagasaki__2014_10_28.mp3", format="mp3"
 )
 
-sound1 = sound[0:32000]
+sound1 = sound[0:127000]
 
 # 抽出した部分を出力
-sound1.export("samples/amagasaki/amagasaki__2014_10_28_32s.mp3", format="mp3")
+sound1.export("samples/amagasaki/amagasaki__2014_10_28_2min.mp3", format="mp3")
