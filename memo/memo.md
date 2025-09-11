@@ -14,7 +14,7 @@ fugashi==1.3.2                # 形態素解析ライブラリ（日本語処理
 unidic-lite==1.0.8            # 軽量辞書（ipadic でも可）
 debugpy==1.8.1                # VSCode などのデバッガーを使うためのライブラリ
 datasets==2.20.0                # データセット管理ライブラリ
-peft==0.11                     # LoRA/PEFT
+peft==0.11.0                     # LoRA/PEFT
 evaluate==0.4.2                       # モデル評価用ライブラリ
 jiwer==3.0.4                          # WER/CER 計算
 torchcodec==0.1.0                     # 音声コーデック系ライブラリ
