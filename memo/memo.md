@@ -2,22 +2,28 @@
 
 ```
 openai-whisper==20231117      # 音声認識（文字起こし）ライブラリ。ffmpegと一緒に使うことが多い
-transformers>=4.44.0          # 感情分析などで使うHugging Faceのモデル運用ライブラリ
+transformers==4.44.2          # 感情分析などで使うHugging Faceのモデル運用ライブラリ
 pyannote.audio==3.1.1         # 話者分離/話者ダイアライゼーション向けの定番ライブラリ
-soundfile>=0.12               # ベースイメージに libsndfile が入っていればOKですが、Python側の soundfile を入れておくと安心。
+soundfile==0.12.1               # ベースイメージに libsndfile が入っていればOKですが、Python側の soundfile を入れておくと安心。
 pydub==0.25.1                 # シンプルな音声の分割/結合などをPythonで行うための補助ライブラリ
 pandas==2.2.2                 # 結果をCSV出力する際などに便利なデータフレーム処理
-accelerate>=0.31.0            # GPU/CPU切替や分散などHugging Face系の実行を簡単にする補助
-huggingface_hub>=0.34.4       # モデルのダウンロード/認証（HFトークン利用）などに使用
+accelerate==0.33.0            # GPU/CPU切替や分散などHugging Face系の実行を簡単にする補助
+huggingface_hub==0.34.4       # モデルのダウンロード/認証（HFトークン利用）などに使用
 # llm-book/bert-base-japanese-v3-wrime-sentiment は MeCab系トークナイザ（MecabTokenizer） を使うので、Python 版の MeCab ラッパー fugashi と 辞書（ipadic か unidic-lite） が必須
-fugashi>=1.3.0                # 形態素解析ライブラリ（日本語処理）
-unidic-lite>=1.0.8            # 軽量辞書（ipadic でも可）
-debugpy>=1.8.1                # VSCode などのデバッガーを使うためのライブラリ
-datasets                       # データセット管理ライブラリ
-peft>=0.11                     # LoRA/PEFT
-evaluate                       # モデル評価用ライブラリ
-jiwer                          # WER/CER 計算
-torchcodec                     # 音声コーデック系ライブラリ
+fugashi==1.3.2                # 形態素解析ライブラリ（日本語処理）
+unidic-lite==1.0.8            # 軽量辞書（ipadic でも可）
+debugpy==1.8.1                # VSCode などのデバッガーを使うためのライブラリ
+datasets==2.20.0                # データセット管理ライブラリ
+peft==0.11                     # LoRA/PEFT
+evaluate==0.4.2                       # モデル評価用ライブラリ
+jiwer==3.0.4                          # WER/CER 計算
+torchcodec==0.1.0                     # 音声コーデック系ライブラリ
+
+
+# conda が ruamel-yaml<0.18 を要求するため固定
+ruamel.yaml==0.17.40
+ruamel.yaml.clib==0.2.8
+
 ```
 
 ## コード
@@ -123,22 +129,6 @@ except Exception:
 import inspect
 
 
-class WhisperTrainer(Seq2SeqTrainer):
-    def compute_loss(
-        self, model, inputs, return_outputs=False, num_items_in_batch=None
-    ):
-        # 余計なカラムが入っていても無視する（例: input_ids, attention_mask など）
-        inputs = dict(inputs)  # defensive copy
-        inputs.pop("input_ids", None)
-        inputs.pop("attention_mask", None)
-        # Whisper が受け取るのは input_features と labels
-        input_features = inputs.get("input_features")
-        labels = inputs.get("labels")
-        outputs = model(input_features=input_features, labels=labels)
-        loss = outputs.loss
-        return (loss, outputs) if return_outputs else loss
-
-
 # ---- Whisper用コラトラ（バックポート） -----------------------
 # DataCollatorSpeechSeq2SeqWithPadding: 音声タスク（Whisper）向けの最小限コラトラ
 class DataCollatorSpeechSeq2SeqWithPadding:
@@ -211,12 +201,12 @@ def parse_args():
     p = argparse.ArgumentParser("Fine-tune Whisper (full/LoRA)")
     # 学習のベースとなる Whisper モデル名（Hugging Face のリポジトリ指定など）
     p.add_argument("--base_model", default="openai/whisper-small")
-    # 学習データ（CSV/TSV）へのパス（必須）
-    p.add_argument("--train_csv", required=True)
-    # 検証データ（CSV/TSV）へのパス（必須）
-    p.add_argument("--valid_csv", required=True)
-    # 学習結果の保存先ディレクトリ（必須）
-    p.add_argument("--output_dir", required=True)
+    # 学習データ（CSV/TSV）へのパス
+    p.add_argument("--train_csv", default="train_data/asr_2min/train.csv")
+    # 検証データ（CSV/TSV）へのパス
+    p.add_argument("--valid_csv", default="train_data/asr_2min/valid.csv")
+    # 学習結果の保存先ディレクトリ
+    p.add_argument("--output_dir", default="models/whisper-small-ja-lora")
 
     # LoRA 利用の有無（指定時に LoRA での学習）
     p.add_argument("--use_lora", action="store_true")
@@ -234,7 +224,7 @@ def parse_args():
     # 1 デバイス当たりの評価時バッチサイズ
     p.add_argument("--per_device_eval_batch_size", type=int, default=8)
     # 勾配累積ステップ数（大きなバッチ相当を実現）
-    p.add_argument("--gradient_accumulation_steps", type=int, default=1)
+    p.add_argument("--gradient_accumulation_steps", type=int, default=2)
     # 学習率
     p.add_argument("--learning_rate", type=float, default=1e-5)
     # L2 正則化（Weight Decay）の係数
@@ -249,6 +239,8 @@ def parse_args():
     p.add_argument("--gradient_checkpointing", action="store_true")
 
     # 評価・保存・ロギング頻度など
+    p.add_argument("--eval_strategy", default="epoch")
+    p.add_argument("--save_strategy", default="epoch")  # eval_strategyと一致させる
     p.add_argument("--eval_steps", type=int, default=200)
     p.add_argument("--save_steps", type=int, default=200)
     p.add_argument("--logging_steps", type=int, default=50)
@@ -390,6 +382,7 @@ def build_metrics_fn(processor: WhisperProcessor):
 def main():
     # コマンドライン引数を解析
     args = parse_args()
+
     # 出力ディレクトリを作成（既にある場合は何もしない）
     os.makedirs(args.output_dir, exist_ok=True)
 
@@ -460,16 +453,6 @@ def main():
         model = get_peft_model(model, lora_cfg)
         # 学習可能パラメータ数を標準出力へ表示（デバッグ・確認用）
         model.print_trainable_parameters()
-        # --- Whisper向け: どこからか input_ids が紛れても無視する保険パッチ ---
-        _orig_forward = model.forward
-
-        def _forward_ignore_input_ids(*args, input_ids=None, **kwargs):
-            # input_ids/attention_mask が渡っても握りつぶして Whisper の forward へ
-            kwargs.pop("input_ids", None)
-            kwargs.pop("attention_mask", None)
-            return _orig_forward(*args, **kwargs)
-
-        model.forward = _forward_ignore_input_ids  # monkey patch
 
     # 4) 評価関数（WER/CER）の構築
     compute_metrics = build_metrics_fn(processor)
@@ -490,7 +473,8 @@ def main():
         weight_decay=args.weight_decay,  # L2 正則化
         warmup_ratio=args.warmup_ratio,  # ウォームアップ比
         num_train_epochs=args.num_train_epochs,  # 総エポック
-        eval_strategy="steps",  # ステップ単位で評価
+        eval_strategy=args.eval_strategy,  # 評価戦略（epoch/steps）
+        save_strategy=args.save_strategy,  # 保存戦略（eval_strategyと一致させる）
         eval_steps=args.eval_steps,  # 評価間隔
         save_steps=args.save_steps,  # 保存間隔
         logging_steps=args.logging_steps,  # ログ出力間隔
@@ -504,7 +488,7 @@ def main():
         metric_for_best_model="wer",  # ベスト判定の指標
         greater_is_better=False,  # WER は小さいほど良い
         # 音声タスクでは未使用列を自動削除して DataCollator に委ねる
-        remove_unused_columns=False,
+        remove_unused_columns=True,
         # 長さ別グルーピングを無効化（可読・再現性重視／必要に応じて変更可）
         group_by_length=False,
         # DataLoader のワーカ数（Python マルチプロセス）
@@ -515,11 +499,11 @@ def main():
     )
 
     # 7) Trainer の構築（モデル・データ・評価・コールバック等を結合）
-    trainer = WhisperTrainer(
+    trainer = Seq2SeqTrainer(
         model=model,  # 学習対象モデル（LoRA ラップ済み可）
         args=training_args,  # 上記の学習設定
         data_collator=data_collator,  # 音声向けコラトラ
-        processing_class=processor,
+        tokenizer=processor,  # 生成時にデコード用として使用
         train_dataset=train_ds,  # 学習データ
         eval_dataset=valid_ds,  # 検証データ
         compute_metrics=compute_metrics,  # WER/CER 計算関数
@@ -556,7 +540,7 @@ if __name__ == "__main__":
 
 ```
 ╭─harum@masaX ~/audio-ie ‹feature/whisper-ft●›
-╰─$                                                                                                                      1 ↵
+╰─$
 docker compose run --rm app \
   python -m src.train_asr \
     --base_model openai/whisper-small \
@@ -573,53 +557,58 @@ docker compose run --rm app \
     --weight_decay 0.01 \
     --warmup_ratio 0.1 \
     --fp16 \
-    --gradient_checkpointing \                                                                                         <....
-/opt/conda/lib/python3.10/site-packages/transformers/utils/hub.py:111: FutureWarning: Using `TRANSFORMERS_CACHE` is deprecated and will be removed in v5 of Transformers. Use `HF_HOME` instead.
+    --gradient_checkpointing \
+    --merge_lora_and_save
+
+/opt/conda/lib/python3.10/site-packages/transformers/utils/hub.py:124: FutureWarning: Using `TRANSFORMERS_CACHE` is deprecated and will be removed in v5 of Transformers. Use `HF_HOME` instead.
   warnings.warn(
-Fetching 1 files: 100%|██████████████████████████████████████████████████████████████████████| 1/1 [00:00<00:00, 3942.02it/s]
+Special tokens have been added in the vocabulary, make sure the associated word embeddings are fine-tuned or trained.
+prepare-train (num_proc=4): 100%|███████████████████████| 24/24 [00:05<00:00,  4.04 examples/s]
 num_proc must be <= 3. Reducing num_proc to 3 for dataset of size 3.
-trainable params: 6,488,064 || all params: 248,222,976 || trainable%: 2.6138
-  0%|                                                                                                 | 0/10 [00:00<?, ?it/s]You're using a WhisperTokenizerFast tokenizer. Please note that with a fast tokenizer, using the `__call__` method is faster than using a method to encode the text followed by a call to the `pad` method to get a padded encoding.
-You're using a WhisperTokenizerFast tokenizer. Please note that with a fast tokenizer, using the `__call__` method is faster than using a method to encode the text followed by a call to the `pad` method to get a padded encoding.
-You're using a WhisperTokenizerFast tokenizer. Please note that with a fast tokenizer, using the `__call__` method is faster than using a method to encode the text followed by a call to the `pad` method to get a padded encoding.
-Traceback (most recent call last):
+prepare-valid (num_proc=3): 100%|█████████████████████████| 3/3 [00:04<00:00,  1.34s/ examples]
+trainable params: 6,488,064 || all params: 248,222,976 || trainable%: 2.6138047752678624
+Using the latest cached version of the module from /root/.cache/huggingface/modules/evaluate_modules/metrics/evaluate-metric--wer/e41eaa77ca7152430cd94704de20946c1b004b5b488ab5d20b26fb81c6c15506 (last modified on Wed Aug 27 11:47:35 2025) since it couldn't be found locally at evaluate-metric--wer, or remotely on the Hugging Face Hub.
+Using the latest cached version of the module from /root/.cache/huggingface/modules/evaluate_modules/metrics/evaluate-metric--cer/87ffabb91696e0a8647c7685d414f639d31fb1eed705afe32e5ab03f4692245c (last modified on Wed Aug 27 11:47:37 2025) since it couldn't be found locally at evaluate-metric--cer, or remotely on the Hugging Face Hub.
+  0%|                                                                    | 0/5 [00:00<?, ?it/s]Traceback (most recent call last):
   File "/opt/conda/lib/python3.10/runpy.py", line 196, in _run_module_as_main
     return _run_code(code, main_globals, None,
   File "/opt/conda/lib/python3.10/runpy.py", line 86, in _run_code
     exec(code, run_globals)
-  File "/work/src/train_asr.py", line 526, in <module>
+  File "/work/src/train_asr.py", line 504, in <module>
     main()
-  File "/work/src/train_asr.py", line 507, in main
+  File "/work/src/train_asr.py", line 485, in main
     trainer.train()
-  File "/opt/conda/lib/python3.10/site-packages/transformers/trainer.py", line 2328, in train
+  File "/opt/conda/lib/python3.10/site-packages/transformers/trainer.py", line 1885, in train
     return inner_training_loop(
-  File "/opt/conda/lib/python3.10/site-packages/transformers/trainer.py", line 2672, in _inner_training_loop
-    tr_loss_step = self.training_step(model, inputs, num_items_in_batch)
-  File "/opt/conda/lib/python3.10/site-packages/transformers/trainer.py", line 4009, in training_step
-    loss = self.compute_loss(model, inputs, num_items_in_batch=num_items_in_batch)
-  File "/work/src/train_asr.py", line 112, in compute_loss
-    outputs = model(input_features=input_features, labels=labels)
+  File "/opt/conda/lib/python3.10/site-packages/transformers/trainer.py", line 2216, in _inner_training_loop
+    tr_loss_step = self.training_step(model, inputs)
+  File "/opt/conda/lib/python3.10/site-packages/transformers/trainer.py", line 3238, in training_step
+    loss = self.compute_loss(model, inputs)
+  File "/opt/conda/lib/python3.10/site-packages/transformers/trainer.py", line 3264, in compute_loss
+    outputs = model(**inputs)
   File "/opt/conda/lib/python3.10/site-packages/torch/nn/modules/module.py", line 1532, in _wrapped_call_impl
     return self._call_impl(*args, **kwargs)
   File "/opt/conda/lib/python3.10/site-packages/torch/nn/modules/module.py", line 1541, in _call_impl
     return forward_call(*args, **kwargs)
-  File "/opt/conda/lib/python3.10/site-packages/accelerate/utils/operations.py", line 818, in forward
+  File "/opt/conda/lib/python3.10/site-packages/accelerate/utils/operations.py", line 819, in forward
     return model_forward(*args, **kwargs)
-  File "/opt/conda/lib/python3.10/site-packages/accelerate/utils/operations.py", line 806, in __call__
+  File "/opt/conda/lib/python3.10/site-packages/accelerate/utils/operations.py", line 807, in __call__
     return convert_to_fp32(self.model_forward(*args, **kwargs))
   File "/opt/conda/lib/python3.10/site-packages/torch/amp/autocast_mode.py", line 16, in decorate_autocast
     return func(*args, **kwargs)
-  File "/work/src/train_asr.py", line 445, in _forward_ignore_input_ids
-    return _orig_forward(*args, **kwargs)
-  File "/opt/conda/lib/python3.10/site-packages/peft/peft_model.py", line 2181, in forward
+  File "/opt/conda/lib/python3.10/site-packages/peft/peft_model.py", line 1326, in forward
     return self.base_model(
   File "/opt/conda/lib/python3.10/site-packages/torch/nn/modules/module.py", line 1532, in _wrapped_call_impl
     return self._call_impl(*args, **kwargs)
   File "/opt/conda/lib/python3.10/site-packages/torch/nn/modules/module.py", line 1541, in _call_impl
     return forward_call(*args, **kwargs)
-  File "/opt/conda/lib/python3.10/site-packages/peft/tuners/tuners_utils.py", line 222, in forward
+  File "/opt/conda/lib/python3.10/site-packages/peft/tuners/tuners_utils.py", line 161, in forward
     return self.model.forward(*args, **kwargs)
 TypeError: WhisperForConditionalGeneration.forward() got an unexpected keyword argument 'input_ids'
-  0%|                                                                                                 | 0/10 [00:02<?, ?it/s]
+  0%|                                                                    | 0/5 [00:01<?, ?it/s]
 
+```
+
+```dockerfile内
+FROM pytorch/pytorch:2.3.1-cuda12.1-cudnn8-runtime
 ```
