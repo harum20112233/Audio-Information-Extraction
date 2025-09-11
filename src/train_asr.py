@@ -170,12 +170,12 @@ def parse_args():
     p = argparse.ArgumentParser("Fine-tune Whisper (full/LoRA)")
     # 学習のベースとなる Whisper モデル名（Hugging Face のリポジトリ指定など）
     p.add_argument("--base_model", default="openai/whisper-small")
-    # 学習データ（CSV/TSV）へのパス（必須）
-    p.add_argument("--train_csv", required=True)
-    # 検証データ（CSV/TSV）へのパス（必須）
-    p.add_argument("--valid_csv", required=True)
-    # 学習結果の保存先ディレクトリ（必須）
-    p.add_argument("--output_dir", required=True)
+    # 学習データ（CSV/TSV）へのパス
+    p.add_argument("--train_csv", default="train_data/asr_2min/train.csv")
+    # 検証データ（CSV/TSV）へのパス
+    p.add_argument("--valid_csv", default="train_data/asr_2min/valid.csv")
+    # 学習結果の保存先ディレクトリ
+    p.add_argument("--output_dir", default="models/whisper-small-ja-lora")
 
     # LoRA 利用の有無（指定時に LoRA での学習）
     p.add_argument("--use_lora", action="store_true")
@@ -193,7 +193,7 @@ def parse_args():
     # 1 デバイス当たりの評価時バッチサイズ
     p.add_argument("--per_device_eval_batch_size", type=int, default=8)
     # 勾配累積ステップ数（大きなバッチ相当を実現）
-    p.add_argument("--gradient_accumulation_steps", type=int, default=1)
+    p.add_argument("--gradient_accumulation_steps", type=int, default=2)
     # 学習率
     p.add_argument("--learning_rate", type=float, default=1e-5)
     # L2 正則化（Weight Decay）の係数
@@ -208,6 +208,8 @@ def parse_args():
     p.add_argument("--gradient_checkpointing", action="store_true")
 
     # 評価・保存・ロギング頻度など
+    p.add_argument("--eval_strategy", default="epoch")
+    p.add_argument("--save_strategy", default="epoch")  # eval_strategyと一致させる
     p.add_argument("--eval_steps", type=int, default=200)
     p.add_argument("--save_steps", type=int, default=200)
     p.add_argument("--logging_steps", type=int, default=50)
@@ -349,6 +351,7 @@ def build_metrics_fn(processor: WhisperProcessor):
 def main():
     # コマンドライン引数を解析
     args = parse_args()
+
     # 出力ディレクトリを作成（既にある場合は何もしない）
     os.makedirs(args.output_dir, exist_ok=True)
 
@@ -439,7 +442,8 @@ def main():
         weight_decay=args.weight_decay,  # L2 正則化
         warmup_ratio=args.warmup_ratio,  # ウォームアップ比
         num_train_epochs=args.num_train_epochs,  # 総エポック
-        evaluation_strategy="steps",  # ステップ単位で評価
+        eval_strategy=args.eval_strategy,  # 評価戦略（epoch/steps）
+        save_strategy=args.save_strategy,  # 保存戦略（eval_strategyと一致させる）
         eval_steps=args.eval_steps,  # 評価間隔
         save_steps=args.save_steps,  # 保存間隔
         logging_steps=args.logging_steps,  # ログ出力間隔
