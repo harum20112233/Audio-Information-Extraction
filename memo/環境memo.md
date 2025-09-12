@@ -6,25 +6,25 @@
 python      : 3.10.14 (main, May  6 2024, 19:42:50) [GCC 11.2.0]
 ================================================================================
 torch             : 2.3.1      @ /opt/conda/lib/python3.10/site-packages/torch/__init__.py
-/opt/conda/lib/python3.10/site-packages/transformers/utils/hub.py:127: FutureWarning: Using `TRANSFORMERS_CACHE` is deprecated and will be removed in v5 of Transformers. Use `HF_HOME` instead.
+/opt/conda/lib/python3.10/site-packages/transformers/utils/hub.py:111: FutureWarning: Using `TRANSFORMERS_CACHE` is deprecated and will be removed in v5 of Transformers. Use `HF_HOME` instead.
   warnings.warn(
-transformers      : 4.44.2     @ /opt/conda/lib/python3.10/site-packages/transformers/__init__.py
-accelerate        : 0.33.0     @ /opt/conda/lib/python3.10/site-packages/accelerate/__init__.py
-datasets          : 2.20.0     @ /opt/conda/lib/python3.10/site-packages/datasets/__init__.py
-peft              : 0.11.0     @ /opt/conda/lib/python3.10/site-packages/peft/__init__.py
-evaluate          : 0.4.2      @ /opt/conda/lib/python3.10/site-packages/evaluate/__init__.py
+transformers      : 4.56.1     @ /opt/conda/lib/python3.10/site-packages/transformers/__init__.py
+accelerate        : 1.10.1     @ /opt/conda/lib/python3.10/site-packages/accelerate/__init__.py
+datasets          : 4.0.0      @ /opt/conda/lib/python3.10/site-packages/datasets/__init__.py
+peft              : 0.17.1     @ /opt/conda/lib/python3.10/site-packages/peft/__init__.py
+evaluate          : 0.4.5      @ /opt/conda/lib/python3.10/site-packages/evaluate/__init__.py
 jiwer             : unknown    @ /opt/conda/lib/python3.10/site-packages/jiwer/__init__.py
 huggingface_hub   : 0.34.4     @ /opt/conda/lib/python3.10/site-packages/huggingface_hub/__init__.py
-soundfile         : 0.12.1     @ /opt/conda/lib/python3.10/site-packages/soundfile.py
+soundfile         : 0.13.1     @ /opt/conda/lib/python3.10/site-packages/soundfile.py
 pydub             : unknown    @ /opt/conda/lib/python3.10/site-packages/pydub/__init__.py
-pandas            : 2.2.2      @ /opt/conda/lib/python3.10/site-packages/pandas/__init__.py
+pandas            : 2.3.2      @ /opt/conda/lib/python3.10/site-packages/pandas/__init__.py
 fugashi           : unknown    @ /opt/conda/lib/python3.10/site-packages/fugashi/__init__.py
 unidic_lite       : unknown    @ /opt/conda/lib/python3.10/site-packages/unidic_lite/__init__.py
-debugpy           : 1.8.1      @ /opt/conda/lib/python3.10/site-packages/debugpy/__init__.py
+debugpy           : 1.8.16     @ /opt/conda/lib/python3.10/site-packages/debugpy/__init__.py
 torchcodec        : Not installed (ImportError: cannot import name 'register_fake' from 'torch.library' (/opt/conda/lib/python3.10/site-packages/torch/library.py))
 ruamel.yaml       : 0.17.40    @ /opt/conda/lib/python3.10/site-packages/ruamel/yaml/__init__.py
 ruamel.yaml.clib  : Not installed (ModuleNotFoundError: No module named 'ruamel.yaml.clib')
-numpy             : 1.26.4     @ /opt/conda/lib/python3.10/site-packages/numpy/__init__.py
+numpy             : 2.0.2      @ /opt/conda/lib/python3.10/site-packages/numpy/__init__.py
 librosa           : Not installed (ModuleNotFoundError: No module named 'librosa')
 ================================================================================
 torch.cuda.is_available : True
