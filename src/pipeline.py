@@ -1,40 +1,41 @@
-# ============================================
-# src/pipeline.py 〜 超ていねいコメント版 〜
-# --------------------------------------------
-# これは「音声 → (区間分割) → 文字起こし → 感情分析 → CSV保存」
-# という一直線の処理“パイプライン”を 1 本のスクリプトで実行します。
-#
-# 【全体像】
-#   入力音声
-#     ├─ ① 区間分割（話者分離pyannote.audio or 無音検出pyDub）
-#     ├─ ② 文字起こし（Whisper）
-#     ├─ ③ 感情分析（Transformers）
-#     └─ ④ CSV 出力
-#
-# 【使い方（コンテナ内での実行例）】
-#   python -m src.pipeline \
-#     --in samples/sample.wav \
-#     --out data/out/result.csv \
-#     --whisper_model small \
-#     --language ja \
-#     --device auto \
-#     --sentiment_model daigo/bert-base-japanese-sentiment
-#
-#   ※ --language ja を付けると日本語の精度が安定しやすいです。
-#   ※ --sentiment_model は任意。指定しない場合は
-#      1) 日本語モデルを試す（要ネット/場合によりHFトークン）
-#      2) ダメなら英語モデル（SST-2）にフォールバックします。
-#
-# 【話者分離（pyannote）を使いたい場合】
-#   - 環境変数 USE_PYANNOTE=1 にする
-#   - HUGGINGFACE_TOKEN を .env に設定（モデルによっては同意/認証が必要）
-#   → 上記が満たされていれば pyannote で話者分離を試み、
-#      失敗したら自動で「無音検出（単一話者）」にフォールバックします。
-#
-# 【前提ライブラリ】
-#   whisper, transformers, pyannote.audio, pydub, pandas, torch
-#   （Dockerfile/requirements.txt でインストール済み）
-# ============================================
+"""
+============================================
+src/pipeline.py 〜 超ていねいコメント版 〜
+--------------------------------------------
+これは「音声 → (区間分割) → 文字起こし → 感情分析 → CSV保存」
+という一直線の処理“パイプライン”を 1 本のスクリプトで実行します。
+
+【全体像】
+  入力音声
+    ├─ ① 区間分割（話者分離pyannote.audio or 無音検出pyDub）
+    ├─ ② 文字起こし（Whisper）
+    ├─ ③ 感情分析（Transformers）
+    └─ ④ CSV 出力
+
+【使い方（コンテナ内での実行例）】
+  docker compose run --rm app python -m src.pipeline \
+    --in samples/sample.wav \
+    --out data/out/result.csv \
+    --whisper_model small \
+    --language ja \
+    --device auto \
+    --sentiment_model daigo/bert-base-japanese-sentiment
+
+
+  ※ --language ja を付けると日本語の精度が安定しやすいです。
+  ※ --sentiment_model は任意。指定しない場合は
+     1) 日本語モデルを試す（要ネット/場合によりHFトークン）
+     2) ダメなら英語モデル（SST-2）にフォールバックします。
+  【話者分離（pyannote）を使いたい場合】
+  - 環境変数 USE_PYANNOTE=1 にする
+  - HUGGINGFACE_TOKEN を .env に設定（モデルによっては同意/認証が必要）
+  → 上記が満たされていれば pyannote で話者分離を試み、
+     失敗したら自動で「無音検出（単一話者）」にフォールバックします。
+  【前提ライブラリ】
+  whisper, transformers, pyannote.audio, pydub, pandas, torch
+  （Dockerfile/requirements.txt でインストール済み）
+============================================
+"""
 
 from __future__ import annotations  # ｜ 型ヒントの前方参照（Python 3.10系互換のため）
 import argparse  # ｜ コマンドライン引数のパース
