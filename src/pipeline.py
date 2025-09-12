@@ -14,12 +14,11 @@ src/pipeline.py 〜 超ていねいコメント版 〜
 
 【使い方（コンテナ内での実行例）】
   docker compose run --rm app python -m src.pipeline \
-    --in samples/sample.wav \
-    --out data/out/result.csv \
+    --in samples/amagasaki/amagasaki__2014_10_28_2min.mp3 \
+    --out data/out/result-small.csv \
     --whisper_model small \
     --language ja \
-    --device auto \
-    --sentiment_model daigo/bert-base-japanese-sentiment
+    --device auto
 
 
   ※ --language ja を付けると日本語の精度が安定しやすいです。
@@ -52,11 +51,14 @@ import torch  # ｜ PyTorch（CUDAが使えるかの判定や、Whisperのデバ
 from pydub import AudioSegment  # ｜ 音声ファイルを読み書き・切り出し
 from pydub.silence import detect_nonsilent  # ｜ 非無音（発話っぽい）区間の検出
 
-# ========= 文字起こし（OpenAI Whisper） =========
-import whisper  # ｜ Whisper公式実装（pipパッケージ）
+# # ========= 文字起こし（OpenAI Whisper） =========
+# import whisper  # ｜ Whisper公式実装（pipパッケージ）
 
 # ========= 感情分析（Hugging Face Transformers） =========
 from transformers import pipeline as hf_pipeline  # ｜ 便利な推論パイプラインAPI
+
+# 学習したローカルのライブラリを用いたいときに用いる
+from pathlib import Path
 
 # ========= 環境変数での動作切り替え（pyannote利用可否など） =========
 USE_PYANNOTE: bool = (
@@ -70,6 +72,18 @@ VAD_MIN_SILENCE_LEN_MS: int = 400  # ｜ これ以上続く静けさを“無音
 VAD_SILENCE_MARGIN_DB: int = 16  # ｜ 平均音量(dBFS)から何dB下を“無音”とみなすか
 VAD_KEEP_SILENCE_MS: int = 100  # ｜ 切り出し時に前後へ加える余白（ms）
 VAD_SEEK_STEP_MS: int = 10  # ｜ 検出の探索間隔（ms）小さいほど精密だが遅い
+
+
+def detect_whisper_backend(model_name_or_path: str) -> str:
+    """
+    'hf'か'openai'を返す。ローカルディレクトリにkonfig.jsonがあれば'hf'。
+    hfはローカルのモデルを使うときに指定する。
+    openaiは公式のWhisperモデルを使うときに指定する。
+    """
+    p = Path(model_name_or_path)
+    if p.exists() and p.is_dir() and (p / "config.json").exists():
+        return "hf"  # Transformers形式
+    return "openai"
 
 
 # -------------------------------------------------
@@ -182,49 +196,83 @@ def transcribe_segments(
     戻り値:
       [(start, end, speaker, text), ...]
     """
-    # --- デバイス決定（autoなら CUDA があれば CUDA を使う） ---
+    """
+    Whisper推論（openai-whisper or Transformers）を自動選択して区間ごとに文字起こし。
+    """
+    # --- デバイス決定 ---
     if device.lower() == "auto":
         use_cuda = torch.cuda.is_available()
     else:
         use_cuda = device.lower() == "cuda"
+    device_index = 0 if use_cuda else -1
 
-    # --- Whisper モデルをロード（1回だけ） ---
-    #     注意：大きいモデルほど精度↑/速度↓（GPU推奨）
-    print(f"[Whisper] model load... / model = {model_name}")
-    model = whisper.load_model(model_name, device="cuda" if use_cuda else "cpu")
-    # 実際に使用されるデバイスを出力
-    print(
-        f"[Whisper] completed to load. / model = {model_name} / device = {model.device}"
-    )
+    backend = detect_whisper_backend(model_name)
+    print(f"[Whisper] backend={backend}")
 
-    # --- 元音声を読み込んで、区間ごとに切り出し → 一時WAV を作って transcribe ---
-    # pydubの AudioSegment で元音声全体を読み込む
+    # 共通の切り出し準備
     audio = AudioSegment.from_file(wav_path)
-    # 出力結果を格納するリストを初期化
     results: list[tuple[float, float, str, str]] = []
 
-    for s, e, spk in segments:
-        # 1) pydub で該当区間を切り出し（ミリ秒指定）
-        clip = audio[int(s * 1000) : int(e * 1000)]
+    if backend == "openai":
+        import whisper as openai_whisper
 
-        # 2) Whisper はファイルパスを受け取るのが簡単なので、一時ファイルに書き出す
+        print(f"[Whisper] model load... / model = {model_name}")
+        model = openai_whisper.load_model(
+            model_name, device="cuda" if use_cuda else "cpu"
+        )
+        print(f"[Whisper] completed / device = {model.device}")
+
+        for s, e, spk in segments:
+            clip = audio[int(s * 1000) : int(e * 1000)]
+            with tempfile.NamedTemporaryFile(suffix=".wav", delete=True) as tmp:
+                clip.export(tmp.name, format="wav")
+                kwargs = {"fp16": use_cuda}
+                if language and language.lower() != "auto":
+                    kwargs["language"] = language
+                out = model.transcribe(tmp.name, **kwargs)
+                text = (out.get("text") or "").strip()
+                results.append((s, e, spk, text))
+        return results
+
+    # ---- ここから Transformers backend ----
+    from transformers import pipeline as hf_asr_pipeline
+
+    # Whisper は生成時に言語/タスク指定が可能（Transformers 4.44+）
+    # ja固定時は language="japanese", task="transcribe"
+    generate_kwargs = {}
+    if language and language.lower() != "auto":
+        # Whisperの言語指定は英語名かISOコード。日本語なら "japanese" が分かりやすい
+        lang_kw = (
+            "japanese" if language.lower() in {"ja", "jpn", "japanese"} else language
+        )
+        generate_kwargs = {"language": lang_kw, "task": "transcribe"}
+
+    # GPUなら半精度で軽く（小〜中モデルで有効）
+    torch_dtype = torch.float16 if use_cuda else None
+
+    print(f"[Whisper/HF] loading model from: {model_name}")
+    asr = hf_asr_pipeline(
+        task="automatic-speech-recognition",
+        model=model_name,
+        device=device_index,
+        torch_dtype=torch_dtype,
+        return_timestamps=False,
+        generate_kwargs=generate_kwargs or None,
+    )
+    print(f"[Whisper/HF] loaded. device={'cuda:0' if use_cuda else 'cpu'}")
+
+    for s, e, spk in segments:
+        clip = audio[int(s * 1000) : int(e * 1000)]
         with tempfile.NamedTemporaryFile(suffix=".wav", delete=True) as tmp:
             clip.export(tmp.name, format="wav")
-
-            # 3) transcribe を実行。language='auto' のときは指定しない。
-            # GPUなら半精度(fp16)で高速化
-            kwargs = {"fp16": use_cuda}
-            if language and language.lower() != "auto":
-                # 言語固定がある場合は指定
-                kwargs["language"] = language
-
-            # Whisperで文字起こしを実行
-            out = model.transcribe(tmp.name, **kwargs)
-            text = (out.get("text") or "").strip()
-
-            # (start, end, speaker, text)のタプルの結果を追加
+            out = asr(tmp.name)
+            text = (
+                (out.get("text") or "").strip()
+                if isinstance(out, dict)
+                else str(out).strip()
+            )
             results.append((s, e, spk, text))
-    # 全区間の文字起こしリストを返す
+
     return results
 
 
@@ -242,9 +290,9 @@ def build_sentiment_pipeline(model_name: str | None = None):
 
     # 日本語モデルの候補（順にトライ）
     ja_candidates = [
+        "Mizuiro-sakura/luke-japanese-large-sentiment-analysis-wrime",  # 多クラス
         "llm-book/bert-base-japanese-v3-wrime-sentiment",  # 推奨（WRIME）
         "jarvisx17/japanese-sentiment-analysis",  # 2値POS/NEG
-        "Mizuiro-sakura/luke-japanese-large-sentiment-analysis-wrime",  # 多クラス
     ]
     for name in ja_candidates:
         try:
