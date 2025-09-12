@@ -3,7 +3,7 @@
 """
 ============================================
 - OpenAI Whisper を Hugging Face Transformers で追加学習
-- フルFT / LoRA(PEFT) 両対応
+- フルFT対応 / LoRA(PEFT)は今のところ非対応
 - 16 kHz 推奨。librosa があれば自動リサンプリング
 - DataCollatorSpeechSeq2SeqWithPadding 採用（音声入力に必須）
 - WER / CER を評価。最良モデルを保存
@@ -13,6 +13,10 @@ CSV/TSV 仕様:
   - audio_path は CSV/TSV の場所からの相対パスまたは絶対パス
 
 使用例:
+  フルファインチューニングは以下のように実行
+  docker compose run --rm app python -m src.train_asr
+
+  この例は今のところ動かないが、LoRAは以下のように実行する想定
   docker compose run --rm app \
     python -m src.train_asr \
       --base_model openai/whisper-small \
@@ -175,7 +179,7 @@ def parse_args():
     # 検証データ（CSV/TSV）へのパス
     p.add_argument("--valid_csv", default="train_data/asr_2min/valid.csv")
     # 学習結果の保存先ディレクトリ
-    p.add_argument("--output_dir", default="models/whisper-small-ja-lora")
+    p.add_argument("--output_dir", default="whisper-small-ja-full")
 
     # LoRA 利用の有無（指定時に LoRA での学習）
     p.add_argument("--use_lora", action="store_true")
