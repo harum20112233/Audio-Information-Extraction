@@ -42,8 +42,7 @@ COPY requirements.txt .
 # 依存をインストール → 依存矛盾チェック → ロック記録
 RUN python -m pip install --upgrade pip && \
     python -m pip install --no-cache-dir -r requirements.txt && \
-    python -m pip check && \
-    python -m pip freeze > /work/pip_freeze.txt
+    python -m pip check
 
 # =========================
 # スモークテスト用のPythonスクリプトをコピーします
