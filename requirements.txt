@@ -25,7 +25,7 @@ torchcodec==0.1.0                     # 音声コーデック系ライブラリ
 # conda が ruamel-yaml<0.18 を要求するため固定
 ruamel.yaml==0.17.40
 ruamel.yaml.clib==0.2.8
-numpy==2.0.2
+numpy==1.26.4
 # 備考:
 # - torch/torchvision/torchaudio はベースイメージ（pytorch/pytorch）側に含まれている前提です
 # - バージョン固定は再現性のため。将来更新する場合は、まとめて上げるのが安全です
