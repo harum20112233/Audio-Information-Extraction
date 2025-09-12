@@ -2,33 +2,35 @@
 
 ```
 openai-whisper==20231117      # 音声認識（文字起こし）ライブラリ。ffmpegと一緒に使うことが多い
-transformers==4.44.2          # 感情分析などで使うHugging Faceのモデル運用ライブラリ
+transformers==4.56.1          # 感情分析などで使うHugging Faceのモデル運用ライブラリ
 pyannote.audio==3.1.1         # 話者分離/話者ダイアライゼーション向けの定番ライブラリ
-soundfile==0.12.1               # ベースイメージに libsndfile が入っていればOKですが、Python側の soundfile を入れておくと安心。
+soundfile==0.13.1               # ベースイメージに libsndfile が入っていればOKですが、Python側の soundfile を入れておくと安心。
 pydub==0.25.1                 # シンプルな音声の分割/結合などをPythonで行うための補助ライブラリ
-pandas==2.2.2                 # 結果をCSV出力する際などに便利なデータフレーム処理
-accelerate==0.33.0            # GPU/CPU切替や分散などHugging Face系の実行を簡単にする補助
+pandas==2.3.2                 # 結果をCSV出力する際などに便利なデータフレーム処理
+accelerate==1.10.1            # GPU/CPU切替や分散などHugging Face系の実行を簡単にする補助
 huggingface_hub==0.34.4       # モデルのダウンロード/認証（HFトークン利用）などに使用
 # llm-book/bert-base-japanese-v3-wrime-sentiment は MeCab系トークナイザ（MecabTokenizer） を使うので、Python 版の MeCab ラッパー fugashi と 辞書（ipadic か unidic-lite） が必須
 fugashi==1.3.2                # 形態素解析ライブラリ（日本語処理）
 unidic-lite==1.0.8            # 軽量辞書（ipadic でも可）
-debugpy==1.8.1                # VSCode などのデバッガーを使うためのライブラリ
-datasets==2.20.0                # データセット管理ライブラリ
-peft==0.11.0                     # LoRA/PEFT
-evaluate==0.4.2                       # モデル評価用ライブラリ
-jiwer==3.0.4                          # WER/CER 計算
+debugpy==1.8.16                # VSCode などのデバッガーを使うためのライブラリ
+datasets==4.0.0                # データセット管理ライブラリ
+peft==0.17.1                     # LoRA/PEFT
+evaluate==0.4.5                       # モデル評価用ライブラリ
+jiwer==3.0.4                       # WER/CER 計算
 torchcodec==0.1.0                     # 音声コーデック系ライブラリ
 
 
 # conda が ruamel-yaml<0.18 を要求するため固定
 ruamel.yaml==0.17.40
 ruamel.yaml.clib==0.2.8
-
+numpy==2.0.2
 ```
 
 ## コード
 
 ```
+"""
+============================================
 # train_asr.py (torchcodec 非依存 / Whisper fine-tune 完成版)
 
 """
@@ -44,6 +46,9 @@ CSV/TSV 仕様:
   - audio_path は CSV/TSV の場所からの相対パスまたは絶対パス
 
 使用例:
+  docker compose run --rm app python -m src.train_asr
+
+  この例は今のところ動かないが、以下のように実行する想定
   docker compose run --rm app \
     python -m src.train_asr \
       --base_model openai/whisper-small \
@@ -536,7 +541,7 @@ if __name__ == "__main__":
 
 ```
 
-## 実行結果
+## 動かなかった方のコマンド
 
 ```
 ╭─harum@masaX ~/audio-ie ‹feature/whisper-ft●›
@@ -609,6 +614,49 @@ TypeError: WhisperForConditionalGeneration.forward() got an unexpected keyword a
 
 ```
 
-```dockerfile内
-FROM pytorch/pytorch:2.3.1-cuda12.1-cudnn8-runtime
+## 動いた方のコマンド
+
+```
+╭─harum@masaX ~/audio-ie ‹main●›
+╰─$ docker compose run --rm app python -m src.train_asr
+
+/opt/conda/lib/python3.10/site-packages/transformers/utils/hub.py:111: FutureWarning: Using `TRANSFORMERS_CACHE` is deprecated and will be removed in v5 of Transformers. Use `HF_HOME` instead.
+  warnings.warn(
+Fetching 1 files: 100%|██████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 1/1 [00:00<00:00, 9664.29it/s]
+num_proc must be <= 3. Reducing num_proc to 3 for dataset of size 3.
+/work/src/train_asr.py:471: FutureWarning: `tokenizer` is deprecated and will be removed in version 5.0.0 for `Seq2SeqTrainer.__init__`. Use `processing_class` instead.
+  trainer = Seq2SeqTrainer(
+  0%|                                                                                                                                                                                                             | 0/10 [00:00<?, ?it/s]You're using a WhisperTokenizerFast tokenizer. Please note that with a fast tokenizer, using the `__call__` method is faster than using a method to encode the text followed by a call to the `pad` method to get a padded encoding.
+You're using a WhisperTokenizerFast tokenizer. Please note that with a fast tokenizer, using the `__call__` method is faster than using a method to encode the text followed by a call to the `pad` method to get a padded encoding.
+You're using a WhisperTokenizerFast tokenizer. Please note that with a fast tokenizer, using the `__call__` method is faster than using a method to encode the text followed by a call to the `pad` method to get a padded encoding.
+ 20%|███████████████████████████████████████▍                                                                                                                                                             | 2/10 [00:06<00:23,  2.90s/it]You're using a WhisperTokenizerFast tokenizer. Please note that with a fast tokenizer, using the `__call__` method is faster than using a method to encode the text followed by a call to the `pad` method to get a padded encoding.
+Using custom `forced_decoder_ids` from the (generation) config. This is deprecated in favor of the `task` and `language` flags/config options.
+The attention mask is not set and cannot be inferred from input because pad token is same as eos token. As a consequence, you may observe unexpected behavior. Please pass your input's `attention_mask` to obtain reliable results.
+{'eval_loss': 1.8311270475387573, 'eval_wer': 1.0, 'eval_cer': 0.11764705882352941, 'eval_runtime': 1.3825, 'eval_samples_per_second': 2.17, 'eval_steps_per_second': 0.723, 'epoch': 1.0}
+ 20%|███████████████████████████████████████▍                                                                                                                                                             | 2/10 [00:08<00:23,  2.90s/it/opt/conda/lib/python3.10/site-packages/transformers/modeling_utils.py:4034: UserWarning: Moving the following attributes in the config to the generation config: {'max_length': 448, 'suppress_tokens': [1, 2, 7, 8, 9, 10, 14, 25, 26, 27, 28, 29, 31, 58, 59, 60, 61, 62, 63, 90, 91, 92, 93, 359, 503, 522, 542, 873, 893, 902, 918, 922, 931, 1350, 1853, 1982, 2460, 2627, 3246, 3253, 3268, 3536, 3846, 3961, 4183, 4667, 6585, 6647, 7273, 9061, 9383, 10428, 10929, 11938, 12033, 12331, 12562, 13793, 14157, 14635, 15265, 15618, 16553, 16604, 18362, 18956, 20075, 21675, 22520, 26130, 26161, 26435, 28279, 29464, 31650, 32302, 32470, 36865, 42863, 47425, 49870, 50254, 50258, 50360, 50361, 50362], 'begin_suppress_tokens': [220, 50257]}. You are seeing this warning because you've set generation parameters in the model config, as opposed to in the generation config.
+  warnings.warn(
+You're using a WhisperTokenizerFast tokenizer. Please note that with a fast tokenizer, using the `__call__` method is faster than using a method to encode the text followed by a call to the `pad` method to get a padded encoding.
+You're using a WhisperTokenizerFast tokenizer. Please note that with a fast tokenizer, using the `__call__` method is faster than using a method to encode the text followed by a call to the `pad` method to get a padded encoding.
+You're using a WhisperTokenizerFast tokenizer. Please note that with a fast tokenizer, using the `__call__` method is faster than using a method to encode the text followed by a call to the `pad` method to get a padded encoding.
+ 40%|██████████████████████████████████████████████████████████████████████████████▊                                                                                                                      | 4/10 [00:23<00:33,  5.57s/it]You're using a WhisperTokenizerFast tokenizer. Please note that with a fast tokenizer, using the `__call__` method is faster than using a method to encode the text followed by a call to the `pad` method to get a padded encoding.
+{'eval_loss': 1.4648158550262451, 'eval_wer': 1.0, 'eval_cer': 0.18823529411764706, 'eval_runtime': 1.3849, 'eval_samples_per_second': 2.166, 'eval_steps_per_second': 0.722, 'epoch': 2.0}
+ 40%|██████████████████████████████████████████████████████████████████████████████▊                                                                                                                      | 4/10 [00:24<00:33,  5.57s/itYou're using a WhisperTokenizerFast tokenizer. Please note that with a fast tokenizer, using the `__call__` method is faster than using a method to encode the text followed by a call to the `pad` method to get a padded encoding.
+You're using a WhisperTokenizerFast tokenizer. Please note that with a fast tokenizer, using the `__call__` method is faster than using a method to encode the text followed by a call to the `pad` method to get a padded encoding.
+You're using a WhisperTokenizerFast tokenizer. Please note that with a fast tokenizer, using the `__call__` method is faster than using a method to encode the text followed by a call to the `pad` method to get a padded encoding.
+ 60%|██████████████████████████████████████████████████████████████████████████████████████████████████████████████████████▏                                                                              | 6/10 [00:36<00:22,  5.61s/it]You're using a WhisperTokenizerFast tokenizer. Please note that with a fast tokenizer, using the `__call__` method is faster than using a method to encode the text followed by a call to the `pad` method to get a padded encoding.
+{'eval_loss': 1.3121376037597656, 'eval_wer': 1.0, 'eval_cer': 0.2, 'eval_runtime': 1.2767, 'eval_samples_per_second': 2.35, 'eval_steps_per_second': 0.783, 'epoch': 3.0}
+ 60%|██████████████████████████████████████████████████████████████████████████████████████████████████████████████████████▏                                                                              | 6/10 [00:37<00:22,  5.61s/itYou're using a WhisperTokenizerFast tokenizer. Please note that with a fast tokenizer, using the `__call__` method is faster than using a method to encode the text followed by a call to the `pad` method to get a padded encoding.
+You're using a WhisperTokenizerFast tokenizer. Please note that with a fast tokenizer, using the `__call__` method is faster than using a method to encode the text followed by a call to the `pad` method to get a padded encoding.
+You're using a WhisperTokenizerFast tokenizer. Please note that with a fast tokenizer, using the `__call__` method is faster than using a method to encode the text followed by a call to the `pad` method to get a padded encoding.
+ 80%|█████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████▌                                       | 8/10 [00:53<00:13,  6.52s/it]You're using a WhisperTokenizerFast tokenizer. Please note that with a fast tokenizer, using the `__call__` method is faster than using a method to encode the text followed by a call to the `pad` method to get a padded encoding.
+{'eval_loss': 1.2276040315628052, 'eval_wer': 1.0, 'eval_cer': 0.12941176470588237, 'eval_runtime': 1.4492, 'eval_samples_per_second': 2.07, 'eval_steps_per_second': 0.69, 'epoch': 4.0}
+ 80%|█████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████▌                                       | 8/10 [00:55<00:13,  6.52s/itYou're using a WhisperTokenizerFast tokenizer. Please note that with a fast tokenizer, using the `__call__` method is faster than using a method to encode the text followed by a call to the `pad` method to get a padded encoding.
+You're using a WhisperTokenizerFast tokenizer. Please note that with a fast tokenizer, using the `__call__` method is faster than using a method to encode the text followed by a call to the `pad` method to get a padded encoding.
+You're using a WhisperTokenizerFast tokenizer. Please note that with a fast tokenizer, using the `__call__` method is faster than using a method to encode the text followed by a call to the `pad` method to get a padded encoding.
+100%|████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 10/10 [01:09<00:00,  6.56s/it]You're using a WhisperTokenizerFast tokenizer. Please note that with a fast tokenizer, using the `__call__` method is faster than using a method to encode the text followed by a call to the `pad` method to get a padded encoding.
+{'eval_loss': 1.1893086433410645, 'eval_wer': 1.0, 'eval_cer': 0.12941176470588237, 'eval_runtime': 1.4026, 'eval_samples_per_second': 2.139, 'eval_steps_per_second': 0.713, 'epoch': 5.0}
+100%|████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 10/10 [01:10<00:00,  6.56s/itThere were missing keys in the checkpoint model loaded: ['proj_out.weight'].
+{'train_runtime': 90.5454, 'train_samples_per_second': 1.325, 'train_steps_per_second': 0.11, 'train_loss': 2.4354724884033203, 'epoch': 5.0}
+100%|████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 10/10 [01:30<00:00,  9.05s/it]
+[OK] saved: models/whisper-small-ja-lora
 ```
