@@ -19,8 +19,6 @@ datasets==4.0.0                # データセット管理ライブラリ
 peft==0.17.1                     # LoRA/PEFT
 evaluate==0.4.5                       # モデル評価用ライブラリ
 jiwer==3.0.4                       # WER/CER 計算
-torchcodec==0.1.0                     # 音声コーデック系ライブラリ
-
 
 # conda が ruamel-yaml<0.18 を要求するため固定
 ruamel.yaml==0.17.40
