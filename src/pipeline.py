@@ -76,7 +76,7 @@ VAD_SEEK_STEP_MS: int = 10  # ｜ 検出の探索間隔（ms）小さいほど�
 
 def detect_whisper_backend(model_name_or_path: str) -> str:
     """
-    'hf'か'openai'を返す。ローカルディレクトリにkonfig.jsonがあれば'hf'。
+    'hf'か'openai'を返す。ローカルディレクトリにconfig.jsonがあれば'hf'。
     hfはローカルのモデルを使うときに指定する。
     openaiは公式のWhisperモデルを使うときに指定する。
     """
