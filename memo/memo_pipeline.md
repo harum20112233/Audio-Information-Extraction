@@ -1,3 +1,10 @@
+## dockerfile
+
+```
+FROM pytorch/pytorch:2.3.1-cuda12.1-cudnn8-runtime
+
+```
+
 ## requirements.txt
 
 ```
@@ -45,12 +52,11 @@ src/pipeline.py 〜 超ていねいコメント版 〜
 
 【使い方（コンテナ内での実行例）】
   docker compose run --rm app python -m src.pipeline \
-    --in samples/sample.wav \
-    --out data/out/result.csv \
+    --in samples/amagasaki/amagasaki__2014_10_28_2min.mp3 \
+    --out data/out/result-small.csv \
     --whisper_model small \
     --language ja \
-    --device auto \
-    --sentiment_model daigo/bert-base-japanese-sentiment
+    --device auto
 
 
   ※ --language ja を付けると日本語の精度が安定しやすいです。
@@ -322,9 +328,9 @@ def build_sentiment_pipeline(model_name: str | None = None):
 
     # 日本語モデルの候補（順にトライ）
     ja_candidates = [
+        "Mizuiro-sakura/luke-japanese-large-sentiment-analysis-wrime",  # 多クラス
         "llm-book/bert-base-japanese-v3-wrime-sentiment",  # 推奨（WRIME）
         "jarvisx17/japanese-sentiment-analysis",  # 2値POS/NEG
-        "Mizuiro-sakura/luke-japanese-large-sentiment-analysis-wrime",  # 多クラス
     ]
     for name in ja_candidates:
         try:
@@ -512,49 +518,92 @@ if __name__ == "__main__":
 
 ```
 
-## 動いた方のコマンド
+## transformers でフルファインチューニングしたモデルで文字起こしをしようとするとエラーに
 
 ```
-╭─harum@masaX ~/audio-ie ‹main●›
-╰─$ docker compose run --rm app python -m src.train_asr
+╭─harum@masaX ~/audio-ie ‹main›
+╰─$ docker compose run --rm app python -m src.pipeline \                                                                                                                                                                           130 ↵
+  --in samples/amagasaki/amagasaki__2014_10_28_2min.mp3 \
+  --out data/out/result-small.csv \
+  --whisper_model models/whisper-small-ja-full \
+  --language ja \
+  --device auto
 
 /opt/conda/lib/python3.10/site-packages/transformers/utils/hub.py:111: FutureWarning: Using `TRANSFORMERS_CACHE` is deprecated and will be removed in v5 of Transformers. Use `HF_HOME` instead.
   warnings.warn(
-Fetching 1 files: 100%|██████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 1/1 [00:00<00:00, 9664.29it/s]
-num_proc must be <= 3. Reducing num_proc to 3 for dataset of size 3.
-/work/src/train_asr.py:471: FutureWarning: `tokenizer` is deprecated and will be removed in version 5.0.0 for `Seq2SeqTrainer.__init__`. Use `processing_class` instead.
-  trainer = Seq2SeqTrainer(
-  0%|                                                                                                                                                                                                             | 0/10 [00:00<?, ?it/s]You're using a WhisperTokenizerFast tokenizer. Please note that with a fast tokenizer, using the `__call__` method is faster than using a method to encode the text followed by a call to the `pad` method to get a padded encoding.
-You're using a WhisperTokenizerFast tokenizer. Please note that with a fast tokenizer, using the `__call__` method is faster than using a method to encode the text followed by a call to the `pad` method to get a padded encoding.
-You're using a WhisperTokenizerFast tokenizer. Please note that with a fast tokenizer, using the `__call__` method is faster than using a method to encode the text followed by a call to the `pad` method to get a padded encoding.
- 20%|███████████████████████████████████████▍                                                                                                                                                             | 2/10 [00:06<00:23,  2.90s/it]You're using a WhisperTokenizerFast tokenizer. Please note that with a fast tokenizer, using the `__call__` method is faster than using a method to encode the text followed by a call to the `pad` method to get a padded encoding.
-Using custom `forced_decoder_ids` from the (generation) config. This is deprecated in favor of the `task` and `language` flags/config options.
-The attention mask is not set and cannot be inferred from input because pad token is same as eos token. As a consequence, you may observe unexpected behavior. Please pass your input's `attention_mask` to obtain reliable results.
-{'eval_loss': 1.8311270475387573, 'eval_wer': 1.0, 'eval_cer': 0.11764705882352941, 'eval_runtime': 1.3825, 'eval_samples_per_second': 2.17, 'eval_steps_per_second': 0.723, 'epoch': 1.0}
- 20%|███████████████████████████████████████▍                                                                                                                                                             | 2/10 [00:08<00:23,  2.90s/it/opt/conda/lib/python3.10/site-packages/transformers/modeling_utils.py:4034: UserWarning: Moving the following attributes in the config to the generation config: {'max_length': 448, 'suppress_tokens': [1, 2, 7, 8, 9, 10, 14, 25, 26, 27, 28, 29, 31, 58, 59, 60, 61, 62, 63, 90, 91, 92, 93, 359, 503, 522, 542, 873, 893, 902, 918, 922, 931, 1350, 1853, 1982, 2460, 2627, 3246, 3253, 3268, 3536, 3846, 3961, 4183, 4667, 6585, 6647, 7273, 9061, 9383, 10428, 10929, 11938, 12033, 12331, 12562, 13793, 14157, 14635, 15265, 15618, 16553, 16604, 18362, 18956, 20075, 21675, 22520, 26130, 26161, 26435, 28279, 29464, 31650, 32302, 32470, 36865, 42863, 47425, 49870, 50254, 50258, 50360, 50361, 50362], 'begin_suppress_tokens': [220, 50257]}. You are seeing this warning because you've set generation parameters in the model config, as opposed to in the generation config.
+/opt/conda/lib/python3.10/site-packages/pyannote/audio/core/io.py:43: UserWarning: torchaudio._backend.set_audio_backend has been deprecated. With dispatcher enabled, this function is no-op. You can remove the function call.
+  torchaudio.set_audio_backend("soundfile")
+config.yaml: 100%|██████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 469/469 [00:00<00:00, 2.14MB/s]
+/opt/conda/lib/python3.10/site-packages/pyannote/audio/pipelines/speaker_verification.py:43: UserWarning: torchaudio._backend.get_audio_backend has been deprecated. With dispatcher enabled, this function is no-op. You can remove the function call.
+  backend = torchaudio.get_audio_backend()
+/opt/conda/lib/python3.10/site-packages/pyannote/audio/pipelines/speaker_verification.py:45: UserWarning: Module 'speechbrain.pretrained' was deprecated, redirecting to 'speechbrain.inference'. Please update your script. This is a change from SpeechBrain 1.0. See: https://github.com/speechbrain/speechbrain/releases/tag/v1.0.0
+  from speechbrain.pretrained import (
+/opt/conda/lib/python3.10/site-packages/pyannote/audio/pipelines/speaker_verification.py:53: UserWarning: torchaudio._backend.set_audio_backend has been deprecated. With dispatcher enabled, this function is no-op. You can remove the function call.
+  torchaudio.set_audio_backend(backend)
+/opt/conda/lib/python3.10/site-packages/pyannote/audio/tasks/segmentation/mixins.py:37: UserWarning: `torchaudio.backend.common.AudioMetaData` has been moved to `torchaudio.AudioMetaData`. Please update the import path.
+  from torchaudio.backend.common import AudioMetaData
+pytorch_model.bin: 100%|████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 5.91M/5.91M [00:01<00:00, 3.93MB/s]
+config.yaml: 100%|██████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 399/399 [00:00<00:00, 2.12MB/s]
+pytorch_model.bin: 100%|████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 26.6M/26.6M [00:00<00:00, 51.2MB/s]
+config.yaml: 100%|███████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 221/221 [00:00<00:00, 817kB/s]
+[Diarization] method=pyannote device=cuda:0
+[Diarization]  diarization start...
+/opt/conda/lib/python3.10/site-packages/pyannote/audio/utils/reproducibility.py:74: ReproducibilityWarning: TensorFloat-32 (TF32) has been disabled as it might lead to reproducibility issues and lower accuracy.
+It can be re-enabled by calling
+   >>> import torch
+   >>> torch.backends.cuda.matmul.allow_tf32 = True
+   >>> torch.backends.cudnn.allow_tf32 = True
+See https://github.com/pyannote/pyannote-audio/issues/1370 for more details.
+
   warnings.warn(
-You're using a WhisperTokenizerFast tokenizer. Please note that with a fast tokenizer, using the `__call__` method is faster than using a method to encode the text followed by a call to the `pad` method to get a padded encoding.
-You're using a WhisperTokenizerFast tokenizer. Please note that with a fast tokenizer, using the `__call__` method is faster than using a method to encode the text followed by a call to the `pad` method to get a padded encoding.
-You're using a WhisperTokenizerFast tokenizer. Please note that with a fast tokenizer, using the `__call__` method is faster than using a method to encode the text followed by a call to the `pad` method to get a padded encoding.
- 40%|██████████████████████████████████████████████████████████████████████████████▊                                                                                                                      | 4/10 [00:23<00:33,  5.57s/it]You're using a WhisperTokenizerFast tokenizer. Please note that with a fast tokenizer, using the `__call__` method is faster than using a method to encode the text followed by a call to the `pad` method to get a padded encoding.
-{'eval_loss': 1.4648158550262451, 'eval_wer': 1.0, 'eval_cer': 0.18823529411764706, 'eval_runtime': 1.3849, 'eval_samples_per_second': 2.166, 'eval_steps_per_second': 0.722, 'epoch': 2.0}
- 40%|██████████████████████████████████████████████████████████████████████████████▊                                                                                                                      | 4/10 [00:24<00:33,  5.57s/itYou're using a WhisperTokenizerFast tokenizer. Please note that with a fast tokenizer, using the `__call__` method is faster than using a method to encode the text followed by a call to the `pad` method to get a padded encoding.
-You're using a WhisperTokenizerFast tokenizer. Please note that with a fast tokenizer, using the `__call__` method is faster than using a method to encode the text followed by a call to the `pad` method to get a padded encoding.
-You're using a WhisperTokenizerFast tokenizer. Please note that with a fast tokenizer, using the `__call__` method is faster than using a method to encode the text followed by a call to the `pad` method to get a padded encoding.
- 60%|██████████████████████████████████████████████████████████████████████████████████████████████████████████████████████▏                                                                              | 6/10 [00:36<00:22,  5.61s/it]You're using a WhisperTokenizerFast tokenizer. Please note that with a fast tokenizer, using the `__call__` method is faster than using a method to encode the text followed by a call to the `pad` method to get a padded encoding.
-{'eval_loss': 1.3121376037597656, 'eval_wer': 1.0, 'eval_cer': 0.2, 'eval_runtime': 1.2767, 'eval_samples_per_second': 2.35, 'eval_steps_per_second': 0.783, 'epoch': 3.0}
- 60%|██████████████████████████████████████████████████████████████████████████████████████████████████████████████████████▏                                                                              | 6/10 [00:37<00:22,  5.61s/itYou're using a WhisperTokenizerFast tokenizer. Please note that with a fast tokenizer, using the `__call__` method is faster than using a method to encode the text followed by a call to the `pad` method to get a padded encoding.
-You're using a WhisperTokenizerFast tokenizer. Please note that with a fast tokenizer, using the `__call__` method is faster than using a method to encode the text followed by a call to the `pad` method to get a padded encoding.
-You're using a WhisperTokenizerFast tokenizer. Please note that with a fast tokenizer, using the `__call__` method is faster than using a method to encode the text followed by a call to the `pad` method to get a padded encoding.
- 80%|█████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████▌                                       | 8/10 [00:53<00:13,  6.52s/it]You're using a WhisperTokenizerFast tokenizer. Please note that with a fast tokenizer, using the `__call__` method is faster than using a method to encode the text followed by a call to the `pad` method to get a padded encoding.
-{'eval_loss': 1.2276040315628052, 'eval_wer': 1.0, 'eval_cer': 0.12941176470588237, 'eval_runtime': 1.4492, 'eval_samples_per_second': 2.07, 'eval_steps_per_second': 0.69, 'epoch': 4.0}
- 80%|█████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████▌                                       | 8/10 [00:55<00:13,  6.52s/itYou're using a WhisperTokenizerFast tokenizer. Please note that with a fast tokenizer, using the `__call__` method is faster than using a method to encode the text followed by a call to the `pad` method to get a padded encoding.
-You're using a WhisperTokenizerFast tokenizer. Please note that with a fast tokenizer, using the `__call__` method is faster than using a method to encode the text followed by a call to the `pad` method to get a padded encoding.
-You're using a WhisperTokenizerFast tokenizer. Please note that with a fast tokenizer, using the `__call__` method is faster than using a method to encode the text followed by a call to the `pad` method to get a padded encoding.
-100%|████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 10/10 [01:09<00:00,  6.56s/it]You're using a WhisperTokenizerFast tokenizer. Please note that with a fast tokenizer, using the `__call__` method is faster than using a method to encode the text followed by a call to the `pad` method to get a padded encoding.
-{'eval_loss': 1.1893086433410645, 'eval_wer': 1.0, 'eval_cer': 0.12941176470588237, 'eval_runtime': 1.4026, 'eval_samples_per_second': 2.139, 'eval_steps_per_second': 0.713, 'epoch': 5.0}
-100%|████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 10/10 [01:10<00:00,  6.56s/itThere were missing keys in the checkpoint model loaded: ['proj_out.weight'].
-{'train_runtime': 90.5454, 'train_samples_per_second': 1.325, 'train_steps_per_second': 0.11, 'train_loss': 2.4354724884033203, 'epoch': 5.0}
-100%|████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 10/10 [01:30<00:00,  9.05s/it]
-[OK] saved: models/whisper-small-ja-lora
+/opt/conda/lib/python3.10/site-packages/pyannote/audio/models/blocks/pooling.py:104: UserWarning: std(): degrees of freedom is <= 0. Correction should be strictly less than the reduction factor (input numel divided by output numel). (Triggered internally at /opt/conda/conda-bld/pytorch_1716905979055/work/aten/src/ATen/native/ReduceOps.cpp:1807.)
+  std = sequences.std(dim=-1, correction=1)
+[Diarization]  diarization completed.
+[Diarization] segments=45
+[Whisper] backend=hf
+[Whisper/HF] loading model from: models/whisper-small-ja-full
+`torch_dtype` is deprecated! Use `dtype` instead!
+Device set to use cuda:0
+[Whisper/HF] loaded. device=cuda:0
+Traceback (most recent call last):
+  File "/opt/conda/lib/python3.10/runpy.py", line 196, in _run_module_as_main
+    return _run_code(code, main_globals, None,
+  File "/opt/conda/lib/python3.10/runpy.py", line 86, in _run_code
+    exec(code, run_globals)
+  File "/work/src/pipeline.py", line 479, in <module>
+    main()
+  File "/work/src/pipeline.py", line 455, in main
+    transcripts = transcribe_segments(
+  File "/work/src/pipeline.py", line 268, in transcribe_segments
+    out = asr(tmp.name)
+  File "/opt/conda/lib/python3.10/site-packages/transformers/pipelines/automatic_speech_recognition.py", line 275, in __call__
+    return super().__call__(inputs, **kwargs)
+  File "/opt/conda/lib/python3.10/site-packages/transformers/pipelines/base.py", line 1459, in __call__
+    return next(
+  File "/opt/conda/lib/python3.10/site-packages/transformers/pipelines/pt_utils.py", line 126, in __next__
+    item = next(self.iterator)
+  File "/opt/conda/lib/python3.10/site-packages/transformers/pipelines/pt_utils.py", line 271, in __next__
+    processed = self.infer(next(self.iterator), **self.params)
+  File "/opt/conda/lib/python3.10/site-packages/torch/utils/data/dataloader.py", line 631, in __next__
+    data = self._next_data()
+  File "/opt/conda/lib/python3.10/site-packages/torch/utils/data/dataloader.py", line 675, in _next_data
+    data = self._dataset_fetcher.fetch(index)  # may raise StopIteration
+  File "/opt/conda/lib/python3.10/site-packages/torch/utils/data/_utils/fetch.py", line 32, in fetch
+    data.append(next(self.dataset_iter))
+  File "/opt/conda/lib/python3.10/site-packages/transformers/pipelines/pt_utils.py", line 188, in __next__
+    processed = next(self.subiterator)
+  File "/opt/conda/lib/python3.10/site-packages/transformers/pipelines/automatic_speech_recognition.py", line 374, in preprocess
+    import torchcodec
+  File "/opt/conda/lib/python3.10/site-packages/torchcodec/__init__.py", line 10, in <module>
+    from . import decoders, samplers  # noqa
+  File "/opt/conda/lib/python3.10/site-packages/torchcodec/decoders/__init__.py", line 7, in <module>
+    from ._core import VideoStreamMetadata
+  File "/opt/conda/lib/python3.10/site-packages/torchcodec/decoders/_core/__init__.py", line 8, in <module>
+    from ._metadata import (
+  File "/opt/conda/lib/python3.10/site-packages/torchcodec/decoders/_core/_metadata.py", line 15, in <module>
+    from torchcodec.decoders._core.video_decoder_ops import (
+  File "/opt/conda/lib/python3.10/site-packages/torchcodec/decoders/_core/video_decoder_ops.py", line 12, in <module>
+    from torch.library import get_ctx, register_fake
+ImportError: cannot import name 'register_fake' from 'torch.library' (/opt/conda/lib/python3.10/site-packages/torch/library.py)
+
 ```
