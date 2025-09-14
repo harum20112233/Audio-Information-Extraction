@@ -3,6 +3,5 @@ __pycache__/
 *.pyc
 .cache/
 cache/
-data/
 logs/
 models/
