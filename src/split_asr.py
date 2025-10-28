@@ -8,6 +8,10 @@ docker compose run --rm app python -m src.split_asr \
   --val_ratio 0.1 --test_ratio 0.1 \
   --seed 42
 
+  csv構成:
+  - audio_path: 音声ファイルのパス（相対パスまたは絶対パス）
+  - text: 音声に対応するテキスト
+
 """
 
 import argparse, csv, os, random
