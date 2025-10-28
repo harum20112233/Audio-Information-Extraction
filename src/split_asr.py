@@ -5,7 +5,7 @@ split_asr.py
 docker compose run --rm app python -m src.split_asr \
   --input_csv in.csv \
   --out_dir train_data/asr_simple \
-  --val_ratio 0.1 --test_ratio 0.1 \
+  --val_ratio 0.1 \
   --seed 42
 
   csv構成:
@@ -24,7 +24,7 @@ def parse_args():
     )
     p.add_argument("--out_dir", required=True, help="出力ディレクトリ")
     p.add_argument("--val_ratio", type=float, default=0.1, help="valid 比率")
-    p.add_argument("--test_ratio", type=float, default=0.1, help="test 比率")
+    p.add_argument("--test_ratio", type=float, default=0.0, help="test 比率")
     p.add_argument("--seed", type=int, default=42, help="シャッフル乱数シード")
     p.add_argument(
         "--check_audio",
