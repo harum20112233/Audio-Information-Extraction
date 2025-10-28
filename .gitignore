@@ -8,3 +8,4 @@ models/
 data/
 train_data/asr*/converted*/
 filelists/
+train_data
