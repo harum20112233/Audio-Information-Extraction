@@ -10,7 +10,7 @@
 
 CSV/TSV 仕様:
   - 必須列: audio_path, text
-  - audio_path は CSV/TSV の場所からの相対パスまたは絶対パス
+  - audio_path は workからの絶対パス
 
 使用例:
   フルファインチューニングは以下のように実行
@@ -180,6 +180,12 @@ def parse_args():
     p.add_argument("--valid_csv", default="train_data/asr_2min/valid.csv")
     # 学習結果の保存先ディレクトリ
     p.add_argument("--output_dir", default="whisper-small-ja-full")
+    # 相対 audio_path 解決用のルート（未指定なら CSV のあるディレクトリ）
+    p.add_argument(
+        "--audio_root",
+        default="/work",
+        help="相対パス audio_path を解決するルート。例: --audio_root /work",
+    )
 
     # LoRA 利用の有無（指定時に LoRA での学習）
     p.add_argument("--use_lora", action="store_true")
@@ -353,6 +359,13 @@ def build_metrics_fn(processor: WhisperProcessor):
 
 # エントリポイント（引数処理→前処理→学習→保存）をまとめる
 def main():
+
+    # 相対パス解決の起点ディレクトリ（--audio_root があればそれを優先）
+    def _resolve_base(csv_path: str) -> str:
+        if args.audio_root:
+            return os.path.abspath(os.path.expanduser(args.audio_root))
+        return os.path.dirname(os.path.abspath(csv_path))
+
     # コマンドライン引数を解析
     args = parse_args()
 
@@ -390,8 +403,8 @@ def main():
     valid_ds = load_csv_as_dataset(args.valid_csv)
 
     # 相対パス解決の起点となる基準ディレクトリを決定（CSV の所在ディレクトリ）
-    train_base = os.path.dirname(os.path.abspath(args.train_csv))
-    valid_base = os.path.dirname(os.path.abspath(args.valid_csv))
+    train_base = _resolve_base(args.train_csv)
+    valid_base = _resolve_base(args.valid_csv)
 
     # 並列前処理のためのプロセス数を確保（OS の CPU 論理コア数と num_workers から安全に決定）
     num_proc = min(os.cpu_count() or 1, max(1, args.num_workers))
