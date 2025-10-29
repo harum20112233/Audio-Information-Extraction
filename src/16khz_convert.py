@@ -1,21 +1,26 @@
 """
-16kHz に変換するためのユーティリティ（上書き・同名保存）
+16kHz に変換するためのユーティリティ
 
 概要:
-  - 指定したファイルまたはディレクトリ内の音声ファイルを一括で 16kHz にリサンプリングします。
-  - 変換後は「元の場所・同じ拡張子・同じファイル名」で上書き保存します（バックアップは取りません）。
-  - サブフォルダの再帰処理や、対象拡張子の指定、モノラル化の有無、ドライラン（実行せずに対象だけ確認）を選べます。
+    - m4a/mp3/wav/flac/ogg/webm 等の音声ファイルを 16kHz にリサンプリングします。
+    - 既定では「出力は WAV」に強制変換します（拡張子 .wav で保存）。
+    - `--out-ext` で出力拡張子を指定できます（例: wav/flac/mp3 等）。
+    - 指定したファイルまたはディレクトリ内の音声ファイルを一括で変換します。
+    - サブフォルダの再帰処理や、対象拡張子の指定、モノラル化の有無、ドライラン（実行せずに対象だけ確認）を選べます。
 
 注意:
-  - 変換には FFmpeg を使用します（pydub 経由）。コンテナ/Dockerfile では ffmpeg を導入済みです。
-  - ロスレスでない形式（m4a/mp3/ogg等）は、再エンコードにより劣化する可能性があります。
+    - 変換には FFmpeg を使用します（pydub 経由）。コンテナ/Dockerfile では ffmpeg を導入済みです。
+    - ロスレスでない形式（m4a/mp3/ogg等）は、再エンコードにより劣化する可能性があります。
 
 使用例:
-  - フォルダ配下の wav, m4a, mp3 をすべて 16kHz に（再帰的・モノラル化）
-          python -m src.16khz_convert --in ./data/in --recursive --mono
+    - フォルダ配下の wav, m4a, mp3 をすべて 16kHz・WAV に（再帰的・モノラル化）
+                    python -m src.16khz_convert --in ./data/in --recursive --mono
 
-  - 特定拡張子だけ対象（wav と flac のみ）を 16kHz に（再帰なし・ドライラン）
-          python -m src.16khz_convert --in ./data/in --ext wav flac --dry-run
+    - 出力を FLAC にしたい場合
+                    python -m src.16khz_convert --in ./data/in --out-ext flac
+
+    - 特定拡張子だけ対象（wav と flac のみ）を 16kHz に（再帰なし・ドライラン）
+                    python -m src.16khz_convert --in ./data/in --ext wav flac --dry-run
 """
 
 from __future__ import annotations
@@ -92,23 +97,30 @@ def find_audio_files(target: Path, recursive: bool, exts: List[str]) -> List[Pat
     return sorted(set(files))
 
 
-def convert_in_place(
+def convert_to_ext(
     src: Path,
+    out_ext: str = "wav",
     sr: int = 16000,
     mono: bool = False,
+    overwrite: bool = True,
 ) -> Tuple[bool, str]:
-    """単一ファイルを 16kHz（既定）へリサンプリングし、同じ場所へ上書き保存する。
+    """単一ファイルを 16kHz にリサンプリングし、指定拡張子で保存する。
 
-    - 形式は拡張子に合わせて維持（例: .m4a -> mp4 コンテナで書き戻し）
+    - デフォルトは WAV で保存（同ディレクトリ・同名で拡張子のみ変更）
+    - out_ext が入力拡張子と同じなら実質上書きと同じ挙動
     - 失敗時は (False, reason)
     """
 
     try:
         from pydub import AudioSegment  # type: ignore
 
-        fmt = ext_to_ffmpeg_format(src.suffix)
-        if fmt is None:
-            return False, f"unsupported ext: {src.name}"
+        fmt_out = ext_to_ffmpeg_format(out_ext)
+        if fmt_out is None:
+            return False, f"unsupported output ext: .{out_ext}"
+
+        dst = src.with_suffix("." + out_ext.lstrip("."))
+        if dst.exists() and not overwrite:
+            return True, f"skip(exists): {dst}"
 
         audio = AudioSegment.from_file(src)
         if sr:
@@ -116,18 +128,17 @@ def convert_in_place(
         if mono:
             audio = audio.set_channels(1)
 
-        # 上書き保存。pydub は出力先から format を推測しないため明示する
-        audio.export(src, format=fmt)
-        return True, f"ok: {src}"
+        audio.export(dst, format=fmt_out)
+        return True, f"ok: {dst}"
 
     except Exception as e:
-        return False, f"error: {src} ({e.__class__.__name__}: {e})"
+        return False, f"error: {src} -> .{out_ext} ({e.__class__.__name__}: {e})"
 
 
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(
         description=(
-            "音声ファイルを 16kHz に一括変換して上書き保存します（拡張子は維持）。"
+            "音声ファイルを 16kHz に一括変換し、既定で WAV に保存します（--out-ext で変更可）。"
         )
     )
     p.add_argument(
@@ -155,6 +166,16 @@ def parse_args() -> argparse.Namespace:
     )
     p.add_argument("--mono", action="store_true", help="モノラル化（チャネル=1）")
     p.add_argument(
+        "--out-ext",
+        default="wav",
+        help=("出力拡張子（既定: wav）。例: wav, flac, mp3, ogg, webm, m4a。"),
+    )
+    p.add_argument(
+        "--no-overwrite",
+        action="store_true",
+        help="出力先が存在する場合はスキップ（既定は上書き）",
+    )
+    p.add_argument(
         "--dry-run",
         action="store_true",
         help="実際には変換せず、対象一覧のみ表示",
@@ -173,7 +194,7 @@ def main() -> None:
         sys.exit(0)
 
     print(
-        f"[START] {len(files)} files | sr={args.sr} mono={args.mono} overwrite=in-place"
+        f"[START] {len(files)} files | sr={args.sr} mono={args.mono} out-ext={args.out_ext} overwrite={not args.no_overwrite}"
     )
 
     if args.dry_run:
@@ -185,7 +206,13 @@ def main() -> None:
     ok = 0
     ng = 0
     for p in _get_tqdm()(files, desc="Resampling 16kHz"):
-        success, msg = convert_in_place(p, sr=args.sr, mono=args.mono)
+        success, msg = convert_to_ext(
+            p,
+            out_ext=args.out_ext,
+            sr=args.sr,
+            mono=args.mono,
+            overwrite=(not args.no_overwrite),
+        )
         if success:
             ok += 1
         else:
