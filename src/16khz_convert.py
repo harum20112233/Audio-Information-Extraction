@@ -13,8 +13,8 @@
     - ロスレスでない形式（m4a/mp3/ogg等）は、再エンコードにより劣化する可能性があります。
 
 使用例:
-    - フォルダ配下の wav, m4a, mp3 をすべて 16kHz・WAV に（再帰的・モノラル化）
-                    python -m src.16khz_convert --in ./data/in --recursive --mono
+    - フォルダ配下の wav, m4a, mp3 をすべて 44kHz・WAV に（再帰的）
+                    python -m src.16khz_convert --in ./data/in --recursive --sr 44100
 
     - 出力を FLAC にしたい場合
                     python -m src.16khz_convert --in ./data/in --out-ext flac

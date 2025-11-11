@@ -36,6 +36,8 @@ services:
       # Transformers 系のキャッシュ（モデルやトークナイザ）をホスト側に保存
       - ./cache/transformers:/root/.cache/torch/transformers
 
+      - ./cache/whisper:/root/.cache/whisper # openai-whisperのキャッシュを永続化
+
       # ログ出力をホスト側に保存（学習/推論のログ確認が容易）
       - ./logs:/work/logs
 
