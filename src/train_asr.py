@@ -23,7 +23,7 @@ CSV/TSV 仕様:
       --train_csv train_data/asr_2min/train.csv \
       --valid_csv train_data/asr_2min/valid.csv \
       --output_dir models/whisper-small-ja-lora \
-      --audio_root data/in \
+      --audio_root /work \
       --use_lora \
       --lora_r 16 --lora_alpha 32 --lora_dropout 0.05 \
       --num_train_epochs 5 \
