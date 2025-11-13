@@ -33,9 +33,6 @@ services:
       # Hugging Face のキャッシュをホスト側に保存して再ダウンロードを避ける
       - ./cache/hf:/root/.cache/huggingface
 
-      # Transformers 系のキャッシュ（モデルやトークナイザ）をホスト側に保存
-      - ./cache/transformers:/root/.cache/torch/transformers
-
       - ./cache/whisper:/root/.cache/whisper # openai-whisperのキャッシュを永続化
 
       # ログ出力をホスト側に保存（学習/推論のログ確認が容易）
@@ -58,9 +55,6 @@ services:
 
       # HF のキャッシュディレクトリを明示（上のボリュームとパスを一致させる）
       - HF_HOME=/root/.cache/huggingface
-
-      # Transformers のキャッシュディレクトリを明示（上のボリュームとパスを一致させる）
-      - TRANSFORMERS_CACHE=/root/.cache/torch/transformers
 
     # 疑似端末を割り当てる。printの改行や対話実行が安定するため開発時は true 推奨
     tty: true
