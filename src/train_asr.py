@@ -401,9 +401,14 @@ def main():
     model.config.pad_token_id = processor.tokenizer.pad_token_id
 
     # 生成時の強制デコーダトークン（言語とタスクに対応するプロンプト ID）
-    model.generation_config.forced_decoder_ids = processor.get_decoder_prompt_ids(
-        language=args.language, task=args.task
-    )
+    # language / task フラグで制御する or そもそも forced decoder を使わないということで廃止される方向なのでコメントアウト
+    # model.generation_config.forced_decoder_ids = processor.get_decoder_prompt_ids(
+    #     language=args.language, task=args.task
+    # )
+
+    # 生成時の強制デコーダトークンは無効化（fine-tune 時は学習に任せる）
+    model.config.forced_decoder_ids = None
+    model.generation_config.forced_decoder_ids = None
     # 初期抑制トークンを無効化（必要に応じて空集合に）
     model.generation_config.suppress_tokens = []
 
