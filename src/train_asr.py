@@ -148,9 +148,19 @@ class DataCollatorSpeechSeq2SeqWithPadding:
         # 2) ラベル列のパディング
         #    tokenizer.pad で長さを揃えた後、pad_token_id を -100 に変換（損失計算で無視）
         label_ids = [f["labels"] for f in features]
-        labels = self.processor.tokenizer.pad(
-            {"input_ids": label_ids}, padding=True, return_tensors="pt"
+        # labels = self.processor.tokenizer.pad(
+        #     {"input_ids": label_ids}, padding=True, return_tensors="pt"
+        # )["input_ids"]
+
+        # ラベルは text のリストとして tokenizer を一括実行
+        texts = [f["labels"] for f in features]
+        labels = self.processor.tokenizer(
+            texts,
+            padding=True,
+            return_tensors="pt",
+            add_special_tokens=True,
         )["input_ids"]
+
         # 交差エントロピー計算で無視されるよう、pad 部分を -100 に置換
         labels = labels.masked_fill(labels == self.pad_token_id, -100)
 
@@ -300,15 +310,15 @@ def build_prepare_fn(processor: WhisperProcessor, base_dir: str):
             audio, sampling_rate=sr, return_tensors="pt"
         )
 
-        # ラベル側は tokenizer で ID 列へ（<|ja|><|transcribe|> 等は forced_decoder_ids で自動付与）
-        label_ids = processor.tokenizer(
-            batch["text"], add_special_tokens=True
-        ).input_ids
+        # # ラベル側は tokenizer で ID 列へ（<|ja|><|transcribe|> 等は forced_decoder_ids で自動付与）
+        # label_ids = processor.tokenizer(
+        #     batch["text"], add_special_tokens=True
+        # ).input_ids
 
         # datasets.map が扱いやすいよう、numpy/list で返却
         return {
             "input_features": inputs.input_features[0].numpy(),  # numpy のまま
-            "labels": label_ids,  # list[int] のまま
+            "labels": batch["text"],  # ← text のままに変更
         }
 
     # 上記の内部関数を返す（map から呼ばれる）
