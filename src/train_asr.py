@@ -142,7 +142,9 @@ class DataCollatorSpeechSeq2SeqWithPadding:
 
         # feature_extractor.pad を用いて、時系列長を最大長に合わせてパディング（バッチ化）
         batch_inputs = self.processor.feature_extractor.pad(
-            input_feats, return_tensors="pt"
+            input_feats,
+            return_tensors="pt",
+            return_attention_mask=True,
         )
 
         # 2) ラベル列のパディング
@@ -167,6 +169,7 @@ class DataCollatorSpeechSeq2SeqWithPadding:
         # 学習で必要なテンソルを返す（型は PyTorch Tensor）
         return {
             "input_features": batch_inputs["input_features"].to(torch.float32),
+            "attention_mask": batch_inputs["attention_mask"],
             "labels": labels.long(),
         }
 
