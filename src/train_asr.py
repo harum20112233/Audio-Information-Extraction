@@ -482,7 +482,7 @@ def main():
         gradient_checkpointing=args.gradient_checkpointing,  # 勾配チェックポイント
         report_to="none",  # ロガー（wandb 等）への報告無効
         load_best_model_at_end=True,  # 最高スコアのモデル読込
-        metric_for_best_model="wer",  # ベスト判定の指標
+        metric_for_best_model="cer",  # ベスト判定の指標"wer","cer"
         greater_is_better=False,  # WER は小さいほど良い
         # 音声タスクでは未使用列を自動削除して DataCollator に委ねる
         remove_unused_columns=True,
@@ -500,7 +500,7 @@ def main():
         model=model,  # 学習対象モデル（LoRA ラップ済み可）
         args=training_args,  # 上記の学習設定
         data_collator=data_collator,  # 音声向けコラトラ
-        tokenizer=processor,  # 生成時にデコード用として使用
+        processing_class=processor,  # 生成時にデコード用として使用
         train_dataset=train_ds,  # 学習データ
         eval_dataset=valid_ds,  # 検証データ
         compute_metrics=compute_metrics,  # WER/CER 計算関数
