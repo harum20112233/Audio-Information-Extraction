@@ -8,7 +8,7 @@ audio_path 列,text 列を持つCSVを入力とし、
 例
 docker compose run --rm app \
   python -m src.whisper_wer_cer_eval \
-    --input_csv data/raw/name_raw_in/name_eval_input.csv \
+    --input_csv data/in/NAME_NAME_WAV/name_eval_input.csv \
     --audio_root . \
     --whisper_model models/whisper-small-name-raw \
     --language ja \
