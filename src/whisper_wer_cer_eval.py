@@ -77,7 +77,8 @@ def load_asr_hf(model_name_or_path: str, use_cuda: bool, language: str):
         task="automatic-speech-recognition",
         model=model_name_or_path,
         device=device_index,
-        torch_dtype=torch_dtype,
+        # ★ここを torch_dtype → dtype に（warning 対応）
+        dtype=torch_dtype,
         return_timestamps=False,
         generate_kwargs=generate_kwargs or None,
     )
@@ -236,6 +237,13 @@ def parse_args() -> argparse.Namespace:
         required=True,
         help="出力CSV（列: audio_path, pred_text, ref_text, cer, wer）",
     )
+    # HF pipeline 用バッチサイズ
+    p.add_argument(
+        "--batch_size",
+        type=int,
+        default=8,
+        help="HF pipeline 使用時のバッチサイズ（デフォルト: 8）",
+    )
     return p.parse_args()
 
 
@@ -251,48 +259,104 @@ def main():
 
     manifest = read_manifest(args.input_csv)
     assert len(manifest) > 0, "入力CSVに行がありません"
-
     # backend 準備
     backend = detect_whisper_backend(args.whisper_model)
     print(f"[Whisper] backend={backend}")
 
+    results: List[dict] = []
+    base = Path(args.audio_root) if args.audio_root else None
+
     if backend == "openai":
+        # ======== これまで通り 1件ずつ処理（openai/whisper はそのままでOK） ========
         model = load_asr_openai(args.whisper_model, use_cuda)
 
         def transcribe_fn(pth: str) -> str:
             return transcribe_openai(model, pth, args.language)
 
+        for i, (ap, ref) in enumerate(manifest, 1):
+            wav_path = str((base / ap) if base else Path(ap))
+            if not os.path.isfile(wav_path):
+                print(f"[WARN] not found: {wav_path}  -> skip")
+                continue
+            try:
+                pred = transcribe_fn(wav_path)
+            except Exception as e:
+                print(f"[ERR] {wav_path}: {e}")
+                pred = ""
+
+            row = {"audio_path": ap, "pred_text": pred, "ref_text": ref or ""}
+            if ref:
+                c = cer(ref, pred)
+                wv = wer(ref, pred)
+                row["cer"] = c
+                row["wer"] = wv
+            results.append(row)
+
+            if i % 50 == 0:
+                print(f"[Progress] {i}/{len(manifest)} files processed")
+
     else:
+        # ======== HF pipeline はバッチで処理 ========
         asr = load_asr_hf(args.whisper_model, use_cuda, args.language)
 
-        def transcribe_fn(pth: str) -> str:
-            return transcribe_hf(asr, pth)
+        # まず存在するファイルだけリスト化
+        items = []  # (ap, ref, wav_path)
+        for ap, ref in manifest:
+            wav_path = str((base / ap) if base else Path(ap))
+            if not os.path.isfile(wav_path):
+                print(f"[WARN] not found: {wav_path}  -> skip")
+                continue
+            items.append((ap, ref, wav_path))
 
-    # 一括処理
-    results: List[dict] = []
-    base = Path(args.audio_root) if args.audio_root else None
-    for i, (ap, ref) in enumerate(manifest, 1):
-        wav_path = str((base / ap) if base else Path(ap))
-        if not os.path.isfile(wav_path):
-            print(f"[WARN] not found: {wav_path}  -> skip")
-            continue
-        try:
-            pred = transcribe_fn(wav_path)
-        except Exception as e:
-            print(f"[ERR] {wav_path}: {e}")
-            pred = ""
+        if not items:
+            print("[WARN] 有効な音声ファイルがありません")
+        else:
+            batch_size = max(1, args.batch_size)
+            total = len(items)
+            print(f"[HF] total {total} files, batch_size={batch_size}")
 
-        row = {"audio_path": ap, "pred_text": pred, "ref_text": ref or ""}
-        if ref:
-            c = cer(ref, pred)
-            w = wer(ref, pred)
-            row["cer"] = c
-            row["wer"] = w
-        results.append(row)
+            for start in range(0, total, batch_size):
+                batch = items[start : start + batch_size]
+                batch_paths = [it[2] for it in batch]
 
-        if i % 50 == 0:
-            print(f"[Progress] {i}/{len(manifest)} files processed")
+                try:
+                    # リストをまとめて pipeline に渡す（バッチ処理）
+                    outs = asr(batch_paths, batch_size=batch_size)
+                except Exception as e:
+                    print(f"[ERR] batch starting at {start}: {e}")
+                    # バッチが落ちたときだけ、念のため1件ずつフォールバック
+                    outs = []
+                    for wav_path in batch_paths:
+                        try:
+                            out_single = asr(wav_path)
+                        except Exception as e2:
+                            print(f"[ERR] {wav_path}: {e2}")
+                            out_single = {"text": ""}
+                        outs.append(out_single)
 
+                # outs は dict か list[dict] なので正規化
+                if isinstance(outs, dict):
+                    outs = [outs]
+
+                for (ap, ref, wav_path), out in zip(batch, outs):
+                    if isinstance(out, dict):
+                        pred = (out.get("text") or "").strip()
+                    else:
+                        pred = str(out).strip()
+
+                    row = {"audio_path": ap, "pred_text": pred, "ref_text": ref or ""}
+                    if ref:
+                        c = cer(ref, pred)
+                        wv = wer(ref, pred)
+                        row["cer"] = c
+                        row["wer"] = wv
+                    results.append(row)
+
+                done = min(start + batch_size, total)
+                if done % 50 == 0 or done == total:
+                    print(f"[Progress] {done}/{total} files processed (batched)")
+
+    # === 共通: CSV書き出し & サマリー ===
     write_results(args.out_csv, results)
     # 参考：全体CER/WER（refがある行のみ）
     cer_vals = [r["cer"] for r in results if r.get("cer") is not None]
