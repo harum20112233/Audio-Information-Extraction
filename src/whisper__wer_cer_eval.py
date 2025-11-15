@@ -1,15 +1,19 @@
-# src/whisper_batch_eval.py
+# src/whisper_wwer_cer_eval.py
 
 """
+input_csv に記載された複数の音声ファイルを Whisper で文字起こしし、
+（参照テキストがあれば）CER/WERを計算して出力CSVに保存する。
+audio_path 列,text 列を持つCSVを入力とし、
+出力CSVには audio_path, pred_text, ref_text, cer, wer 列が含まれる。
 例
 docker compose run --rm app \
-  python -m src.whisper_only \
-    --input_csv data/in/medical_samples_500fujii.csv \
+  python -m src.whisper_wer_cer_eval \
+    --input_csv data/raw/name_raw_in/name_eval_input.csv \
     --audio_root . \
-    --whisper_model models/isha-small-whisper-small-ja \
+    --whisper_model models/whisper-small-name-raw \
     --language ja \
     --device auto \
-    --out_csv data/out/whisper_eval_finetuned.csv
+    --out_csv data/out/name_raw_eval_small.csv
 
 """
 
