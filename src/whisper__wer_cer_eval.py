@@ -160,20 +160,55 @@ def read_manifest(csv_path: str) -> List[Tuple[str, Optional[str]]]:
 def write_results(out_csv: str, rows: List[dict]) -> None:
     os.makedirs(os.path.dirname(os.path.abspath(out_csv)), exist_ok=True)
     header = ["audio_path", "pred_text", "ref_text", "cer", "wer"]
+
     with open(out_csv, "w", newline="", encoding="utf-8") as f:
         w = csv.DictWriter(f, fieldnames=header)
         w.writeheader()
+
+        sum_cer = 0.0
+        sum_wer = 0.0
+        n_cer = 0
+        n_wer = 0
+
+        # 各行を書き出しつつ、平均用に集計
         for r in rows:
+            cer_val = r.get("cer")
+            wer_val = r.get("wer")
+
+            if cer_val is not None:
+                sum_cer += float(cer_val)
+                n_cer += 1
+            if wer_val is not None:
+                sum_wer += float(wer_val)
+                n_wer += 1
+
             w.writerow(
                 {
                     "audio_path": r["audio_path"],
                     "pred_text": r["pred_text"],
                     "ref_text": r.get("ref_text", ""),
-                    "cer": None if r.get("cer") is None else round(r["cer"], 4),
-                    "wer": None if r.get("wer") is None else round(r["wer"], 4),
+                    "cer": None if cer_val is None else round(cer_val, 4),
+                    "wer": None if wer_val is None else round(wer_val, 4),
                 }
             )
-    print(f"[OK] wrote: {out_csv} (rows={len(rows)})")
+
+        # 平均行を一番下に追加
+        total_rows = len(rows)
+        if n_cer > 0 or n_wer > 0:
+            avg_cer = sum_cer / n_cer if n_cer > 0 else None
+            avg_wer = sum_wer / n_wer if n_wer > 0 else None
+
+            avg_row = {
+                "audio_path": "average",
+                "pred_text": "average",
+                "ref_text": "average",
+                "cer": None if avg_cer is None else round(avg_cer, 4),
+                "wer": None if avg_wer is None else round(avg_wer, 4),
+            }
+            w.writerow(avg_row)
+            total_rows += 1
+
+    print(f"[OK] wrote: {out_csv} (rows={total_rows})")
 
 
 # ============== メイン ==============
