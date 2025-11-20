@@ -24,6 +24,7 @@ rapidfuzz            # 文字列類似度計算ライブラリ
 ruamel.yaml==0.17.40
 ruamel.yaml.clib==0.2.8
 numpy==1.26.4
+librosa==0.10.2
 # 備考:
 # - torch/torchvision/torchaudio はベースイメージ（pytorch/pytorch）側に含まれている前提です
 # - バージョン固定は再現性のため。将来更新する場合は、まとめて上げるのが安全です
