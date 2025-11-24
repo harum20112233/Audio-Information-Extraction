@@ -4,6 +4,13 @@
 # pytorch/pytorch:2.3.1-cuda12.1-cudnn8-runtimeが元のやつ、不具合があったら戻す
 # =========================
 FROM pytorch/pytorch:2.9.1-cuda12.6-cudnn9-runtime
+
+# =========================
+# 【追加】uv を公式イメージからコピー (これが一番手軽で確実です)
+# /usr/local/bin/uv に配置されるため、パスが通った状態で使えます
+# =========================
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
+
 # =========================
 # 非対話モードでのapt実行時に余計な質問が出ないよう抑制します
 # =========================
@@ -26,11 +33,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # =========================
 WORKDIR /work
 
+
 # =========================
-# pip の余計なキャッシュを残さない・バージョン確認を抑制する設定です
-# 小さな最適化ですが地味に効きます
+# 環境変数の設定
+# UV_SYSTEM_PYTHON=1: 仮想環境を作らず、コンテナのPython環境(System Python)に直接インストールする設定
+# UV_COMPILE_BYTECODE=1: インストール時にバイトコンパイルを行い、起動速度を少し上げる
 # =========================
-ENV PIP_NO_CACHE_DIR=1 PIP_DISABLE_PIP_VERSION_CHECK=1
+ENV UV_SYSTEM_PYTHON=1 \
+    UV_COMPILE_BYTECODE=1
 
 # =========================
 # Python依存パッケージの一覧をコンテナにコピーします
@@ -39,9 +49,12 @@ ENV PIP_NO_CACHE_DIR=1 PIP_DISABLE_PIP_VERSION_CHECK=1
 COPY requirements.txt .
 
 
-# 依存をインストール → 依存矛盾チェック → ロック記録
-RUN python -m pip install --upgrade pip && \
-    python -m pip install --no-cache-dir -r requirements.txt
+# =========================
+# 【変更】uv を使ってインストール
+# --system: システムのPython環境にインストール (Dockerではこれが基本)
+# --no-cache: Dockerイメージサイズ削減のためキャッシュを残さない
+# =========================
+RUN uv pip install --system --no-cache -r requirements.txt
 
 # =========================
 # スモークテスト用のPythonスクリプトをコピーします
