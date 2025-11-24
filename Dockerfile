@@ -5,11 +5,6 @@
 # =========================
 FROM pytorch/pytorch:2.9.1-cuda12.6-cudnn9-runtime
 
-# =========================
-# 【追加】uv を公式イメージからコピー (これが一番手軽で確実です)
-# /usr/local/bin/uv に配置されるため、パスが通った状態で使えます
-# =========================
-COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
 
 # =========================
 # 非対話モードでのapt実行時に余計な質問が出ないよう抑制します
@@ -27,6 +22,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ffmpeg libsndfile1 git && \
     rm -rf /var/lib/apt/lists/*
 
+
+# =========================
+# 【移動】uv はここでコピー
+# apt-get より後ろなら、uv が変わっても apt-get のキャッシュは壊れません
+# =========================
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
 # =========================
 # コンテナ内の作業ディレクトリを /work にします
 # 以降のファイルコピーやコマンドの実行は /work 基準になります
