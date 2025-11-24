@@ -1,9 +1,9 @@
 # =========================
-# ベースイメージを指定します。PyTorch + CUDA 12.1 の実行環境が入っています
+# ベースイメージを指定します。PyTorch + CUDA 12.6 の実行環境が入っています
 # - これによりGPUでPyTorchを動かせる土台が一発で整います
+# pytorch/pytorch:2.3.1-cuda12.1-cudnn8-runtimeが元のやつ、不具合があったら戻す
 # =========================
-FROM pytorch/pytorch:2.3.1-cuda12.1-cudnn8-runtime
-
+FROM pytorch/pytorch:2.9.1-cuda12.6-cudnn9-runtime
 # =========================
 # 非対話モードでのapt実行時に余計な質問が出ないよう抑制します
 # =========================
