@@ -1,5 +1,6 @@
 """
 ser_test.py
+speech emotion recognition
 音声から感情を推定するためのテストスクリプト（SUPERB版・Safetensors強制・修正済み）
 """
 
