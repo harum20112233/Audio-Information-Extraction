@@ -1,5 +1,5 @@
 """
-esr_test.py
+ser_test.py
 音声から感情を推定するためのテストスクリプト（SUPERB版・Safetensors強制・修正済み）
 """
 
