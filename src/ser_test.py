@@ -18,6 +18,9 @@ WAV_DIR = "./data/test_wav"
 # 多くの研究で基準として使われるため、動作が最も安定しています
 MODEL_NAME = "superb/wav2vec2-base-superb-er"
 
+# # 以下モデルやソフトウェアを商用利用する場合は、上記のライセンスの明記と著作権表示の保持を必ず行うように注意してください。apache-2.0
+# MODEL_NAME = "imprt/izanami-wav2vec2-large-jtes-er"
+
 
 def main():
     # GPU設定
@@ -25,7 +28,7 @@ def main():
     print(f"使用デバイス: {device}")
 
     print(f"感情認識モデルの読み込み中...{MODEL_NAME}")
-
+    hf_token = os.environ.get("HUGGINGFACE_TOKEN")
     try:
         # 【重要修正】use_safetensors=True を追加
         # これにより、古いpickle形式の読み込みエラーを回避し、安全なファイルを強制的に使います
@@ -34,6 +37,7 @@ def main():
             model=MODEL_NAME,
             device=device,
             use_safetensors=True,
+            token=hf_token,
         )
     except Exception as e:
         print(f"Pipeline読み込みエラー: {e}")
@@ -58,6 +62,13 @@ def main():
         "ang": "怒り",
         "sad": "悲しみ",
     }
+    # いざなみはこっちかも
+    # label_map = {
+    #     "joy": "喜び",
+    #     "anger": "怒り",
+    #     "sadness": "悲しみ",
+    #     "neutral": "中立",
+    # }
 
     for file_path in wav_files:
         try:
